@@ -206,13 +206,15 @@ async function bootstrap(): Promise<void> {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
-    camera.updateViewProjection(canvas.width, canvas.height);
+    // Camera + visibility math runs in CSS pixels so it matches the picker
+    // and DOM event coords; backing-pixel sizes only feed gl.viewport above.
+    camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
       camera.x,
       camera.y,
-      canvas.width,
-      canvas.height,
+      canvas.clientWidth,
+      canvas.clientHeight,
       camera.zoom,
       TILE_WORLD_SIZE,
       STREAM_MARGIN_CHUNKS,
@@ -255,7 +257,7 @@ async function bootstrap(): Promise<void> {
 // is cheap (microseconds at MVP scale).
 function getSimulatableChunkKeys(chunkManager: ChunkManager): string[] {
   const out: string[] = [];
-  for (const [key, record] of iterateChunkRecords(chunkManager)) {
+  for (const [key, record] of chunkManager.allChunkRecords()) {
     if (chunkHasCrop(record)) out.push(key);
   }
   return out;
@@ -268,13 +270,6 @@ function chunkHasCrop(record: ChunkRecord): boolean {
     if (id >= 100 && id <= 199) return true;
   }
   return false;
-}
-
-// Tiny shim: ChunkManager doesn't expose its cache iterator publicly; we use
-// dirtySimChunks which traverses every entry. This is wrong for non-dirty
-// chunks though. Add a dedicated all-records iterator on the manager.
-function* iterateChunkRecords(chunkManager: ChunkManager): IterableIterator<[string, ChunkRecord]> {
-  yield* chunkManager.allChunkRecords();
 }
 
 bootstrap().catch(showFatalError);

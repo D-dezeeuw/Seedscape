@@ -102,8 +102,8 @@ export class ChunkManager {
 
   // All cached chunk records by key. Used by the sim loop to find chunks
   // that need ticking. Iterates without promoting LRU.
-  *allChunkRecords(): IterableIterator<[string, ChunkRecord]> {
-    yield* this.cache.entries();
+  allChunkRecords(): IterableIterator<[string, ChunkRecord]> {
+    return this.cache.entries();
   }
 
   clearSimulationDirty(chunkX: number, chunkY: number): void {
