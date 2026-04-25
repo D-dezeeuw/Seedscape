@@ -163,14 +163,8 @@ async function bootstrap(): Promise<void> {
         .tick(chunkX, chunkY, tick, record.data)
         .then((result) => {
           inFlightKeys.delete(key);
-          // Replace the record's data with the buffers that just came back —
-          // they're the same logical bytes (the worker mutates in-place is
-          // not used; sim_pipeline returns a delta). But the typed-array
-          // wrappers in `record.data` were detached during transfer, so we
-          // swap in the fresh ones.
-          record.data.tileId = result.data.tileId;
-          record.data.state = result.data.state;
-          record.data.metadata = result.data.metadata;
+          // The pool copied the chunk before transferring, so record.data is
+          // still live. Apply only the delta if anything changed.
           if (result.delta.count > 0) {
             applySimDelta(record.data, result.delta);
             record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;

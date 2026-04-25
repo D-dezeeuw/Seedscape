@@ -24,11 +24,8 @@ export type SimResponse =
       taskId: number;
       chunkX: number;
       chunkY: number;
-      // Original buffers handed back so caller can reuse them.
-      tileIdIn: ArrayBuffer;
-      stateIn: ArrayBuffer;
-      metadataIn: ArrayBuffer;
-      // Delta arrays sliced to length=count.
+      // Delta arrays sliced to length=count. The pool transferred a *copy*
+      // of the chunk in, so we don't need to round-trip the input buffers.
       count: number;
       indices: ArrayBuffer;
       deltaTileId: ArrayBuffer;
@@ -67,9 +64,6 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
       taskId: msg.taskId,
       chunkX: msg.chunkX,
       chunkY: msg.chunkY,
-      tileIdIn: chunk.tileId.buffer as ArrayBuffer,
-      stateIn: chunk.state.buffer as ArrayBuffer,
-      metadataIn: chunk.metadata.buffer as ArrayBuffer,
       count: delta.count,
       indices: indices.buffer as ArrayBuffer,
       deltaTileId: deltaTileId.buffer as ArrayBuffer,
@@ -78,9 +72,6 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
     };
 
     self.postMessage(response, [
-      response.tileIdIn,
-      response.stateIn,
-      response.metadataIn,
       response.indices,
       response.deltaTileId,
       response.deltaState,

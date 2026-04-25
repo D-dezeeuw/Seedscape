@@ -1,9 +1,10 @@
-// Main-thread wrapper around a pool of simulation workers. Mirrors
-// generation_pool: FIFO dispatch, per-task promise. The interaction model is
-// different though — sim ticks reuse the chunk's typed-array buffers, which
-// means the buffers are unavailable on the main thread while a sim is in
-// flight. Callers (ChunkManager) must wait for the result before reading or
-// writing the chunk again.
+// Main-thread wrapper around a pool of simulation workers. FIFO dispatch.
+//
+// The pool COPIES chunk data into fresh buffers before transferring them to
+// the worker. The original chunk arrays stay live on the main thread, so
+// concurrent reads (autosave, hover/picker, render uploads) keep working
+// while a sim is in flight. The 4 KB/chunk/tick copy is well below the
+// throughput target in docs/06_memory_performance.md.
 
 import type { ChunkData } from "../world/chunk";
 import type { SimDelta } from "../world/farming/sim_pipeline";
@@ -31,9 +32,6 @@ interface WorkerSlot {
 export interface SimTaskResult {
   chunkX: number;
   chunkY: number;
-  // Caller-owned buffers handed back. Wrap them in a fresh ChunkData if the
-  // caller wants to keep using the chunk.
-  data: ChunkData;
   delta: SimDelta;
 }
 
@@ -64,18 +62,22 @@ export class SimulationPool {
     }
   }
 
-  // Dispatch a tick for one chunk. Caller's typed-array buffers are
-  // transferred in and back; the returned ChunkData wraps the same buffers.
+  // Dispatch a tick for one chunk. Caller's chunk data is copied into fresh
+  // buffers; those copies are what gets transferred to the worker. The
+  // caller's original buffers are never detached.
   tick(chunkX: number, chunkY: number, tick: number, data: ChunkData): Promise<SimTaskResult> {
     return new Promise((resolve, reject) => {
+      const tileIdCopy = new Uint16Array(data.tileId);
+      const stateCopy = new Uint8Array(data.state);
+      const metadataCopy = new Uint8Array(data.metadata);
       const task: PendingTask = {
         taskId: this.nextTaskId++,
         chunkX,
         chunkY,
         tick,
-        tileId: data.tileId.buffer as ArrayBuffer,
-        state: data.state.buffer as ArrayBuffer,
-        metadata: data.metadata.buffer as ArrayBuffer,
+        tileId: tileIdCopy.buffer as ArrayBuffer,
+        state: stateCopy.buffer as ArrayBuffer,
+        metadata: metadataCopy.buffer as ArrayBuffer,
         resolve,
         reject,
       };
@@ -107,11 +109,6 @@ export class SimulationPool {
       task.resolve({
         chunkX: msg.chunkX,
         chunkY: msg.chunkY,
-        data: {
-          tileId: new Uint16Array(msg.tileIdIn),
-          state: new Uint8Array(msg.stateIn),
-          metadata: new Uint8Array(msg.metadataIn),
-        },
         delta: {
           count: msg.count,
           indices: new Uint16Array(msg.indices),
