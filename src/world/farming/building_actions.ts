@@ -17,16 +17,24 @@ import {
 } from "./building_registry";
 
 const TILE_FARMLAND_TILLED = 13;
-// Tiles a player is allowed to build on. Tilled farmland is the only Phase 4
-// surface — no obstructing water, no pre-existing crops/buildings.
-const BUILDABLE_TILE_IDS = new Set<number>([TILE_FARMLAND_TILLED]);
+// Buildings sit on any solid ground tile — anything in the ground id range
+// (0..99) that isn't water or soft marsh. Crops (100..199) and existing
+// buildings (200..299) are excluded by the id range check.
+const NON_BUILDABLE_GROUND_IDS = new Set<number>([
+  0, // shallow_water
+  1, // deep_water
+  30, // swamp_water
+  31, // mudflat (soft)
+  32, // deltaic_soil (soft marsh)
+]);
 
 export interface BuildingActionResult {
   applied: boolean;
 }
 
-export function isBuildable(tileId: number, state: number): boolean {
-  return BUILDABLE_TILE_IDS.has(tileId) && state === 0;
+export function isBuildable(tileId: number, _state: number): boolean {
+  if (tileId >= 100) return false; // crops + buildings excluded
+  return !NON_BUILDABLE_GROUND_IDS.has(tileId);
 }
 
 export function setBuildingTile(
