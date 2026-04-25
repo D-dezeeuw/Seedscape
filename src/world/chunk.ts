@@ -1,6 +1,8 @@
 // Chunk primitives shared by every system: cache, generation, simulation,
 // rendering, persistence. Per docs/05_data_model.md and the chunk-work skill.
 
+import { cropAtlasIndex, isCropTile } from "./farming/crop_registry";
+
 export const CHUNK_SIZE = 32;
 export const TILES_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE;
 
@@ -8,6 +10,15 @@ export interface ChunkData {
   tileId: Uint16Array;
   state: Uint8Array;
   metadata: Uint8Array;
+}
+
+// Per docs/13_chunk_lifecycle.md and docs/05_data_model.md.
+export const CHUNK_FLAG_DIRTY_SIMULATION = 1 << 0; // CPU diverged from disk
+export const CHUNK_FLAG_DIRTY_RENDER = 1 << 1; // CPU diverged from GPU
+
+export interface ChunkRecord {
+  data: ChunkData;
+  flags: number;
 }
 
 export function tileIndex(x: number, y: number): number {
@@ -22,8 +33,20 @@ export function allocChunkData(): ChunkData {
   };
 }
 
+export function makeChunkRecord(data: ChunkData, flags = CHUNK_FLAG_DIRTY_RENDER): ChunkRecord {
+  return { data, flags };
+}
+
+// Render-time atlas slot for a tile. Crops resolve to base+stage so the same
+// chunk.tileId (the crop's base) renders different sprites as the crop grows;
+// every other tile maps to its tileId directly.
+export function renderAtlasIndex(tileId: number, state: number): number {
+  if (isCropTile(tileId)) return cropAtlasIndex(tileId, state);
+  return tileId;
+}
+
 // GPU instance buffer per docs/05_data_model.md. Layout per tile:
-// [worldX, worldY, tileIndex, stateFlags] x 1024 = 16 KB.
+// [worldX, worldY, atlasIndex, stateFlags] x 1024 = 16 KB.
 export function buildInstanceBuffer(
   chunk: ChunkData,
   chunkWorldX: number,
@@ -35,10 +58,14 @@ export function buildInstanceBuffer(
     for (let x = 0; x < CHUNK_SIZE; x++) {
       const i = tileIndex(x, y);
       const offset = i * 4;
+      const tileId = chunk.tileId[i] ?? 0;
+      const state = chunk.state[i] ?? 0;
       buffer[offset] = chunkWorldX + x;
       buffer[offset + 1] = chunkWorldY + y;
-      buffer[offset + 2] = chunk.tileId[i] ?? 0;
-      buffer[offset + 3] = chunk.state[i] ?? 0;
+      buffer[offset + 2] = renderAtlasIndex(tileId, state);
+      // For Phase 3 the GPU stateFlags are unused (no wilt overlay yet); leave
+      // 0 so the fragment shader's wilt branch stays inert.
+      buffer[offset + 3] = 0;
     }
   }
   return buffer;

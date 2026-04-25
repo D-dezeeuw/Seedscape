@@ -9,10 +9,18 @@
 //  - At most one outstanding generation per chunk key. (`inFlight` set.)
 //  - Generation results that arrive after the chunk left view still land in
 //    the CPU cache; only GPU upload is gated on still being visible.
+//  - DIRTY_RENDER on a record triggers a buffer rebuild on the next update().
 
 import type { InstancedTileRenderer } from "../rendering/instanced_tile_renderer";
 import type { GenerationPool } from "../workers/generation_pool";
-import { buildInstanceBuffer, type ChunkData } from "./chunk";
+import {
+  buildInstanceBuffer,
+  CHUNK_FLAG_DIRTY_RENDER,
+  CHUNK_FLAG_DIRTY_SIMULATION,
+  type ChunkData,
+  type ChunkRecord,
+  makeChunkRecord,
+} from "./chunk";
 import { ChunkCache } from "./chunk_cache";
 import { type ChunkRect, chunkKey, chunkOriginWorldTile } from "./coords";
 
@@ -22,17 +30,23 @@ export interface ChunkManagerOptions {
   cacheCapacity: number;
 }
 
+// Parsed chunkKey back to (chunkX, chunkY). Format is "<x>,<y>" — see coords.ts.
+function parseChunkKey(key: string): [number, number] {
+  const comma = key.indexOf(",");
+  return [Number(key.slice(0, comma)), Number(key.slice(comma + 1))];
+}
+
 export class ChunkManager {
   private readonly pool: GenerationPool;
   private readonly renderer: InstancedTileRenderer;
-  private readonly cache: ChunkCache<ChunkData>;
+  private readonly cache: ChunkCache<ChunkRecord>;
   private readonly inFlight = new Set<string>();
   private currentKeepSet = new Set<string>();
 
   constructor(opts: ChunkManagerOptions) {
     this.pool = opts.pool;
     this.renderer = opts.renderer;
-    this.cache = new ChunkCache<ChunkData>({
+    this.cache = new ChunkCache<ChunkRecord>({
       capacity: opts.cacheCapacity,
       onEvict: (key) => this.renderer.removeChunk(key),
     });
@@ -44,6 +58,57 @@ export class ChunkManager {
 
   get inFlightCount(): number {
     return this.inFlight.size;
+  }
+
+  // Direct read for tile interaction / save serialization. Returns the cached
+  // record without promoting LRU; callers that mutate must also call
+  // markDirty() so the renderer knows to rebuild.
+  peekChunk(chunkX: number, chunkY: number): ChunkRecord | null {
+    const key = chunkKey(chunkX, chunkY);
+    // Map iteration is the only ordered access in ChunkCache; this read is
+    // unordered (peek) so we don't promote, which would clobber LRU semantics.
+    for (const [k, v] of this.cache.entries()) {
+      if (k === key) return v;
+    }
+    return null;
+  }
+
+  // Mark dirty for both render (next update will reupload) and simulation
+  // (next save will persist). Used by tile actions and sim-result handling.
+  markDirty(chunkX: number, chunkY: number, flags = CHUNK_FLAG_DIRTY_RENDER): void {
+    const record = this.peekChunk(chunkX, chunkY);
+    if (!record) return;
+    record.flags |= flags;
+  }
+
+  // Pre-install a chunk from save before any generation runs. Avoids
+  // regeneration of a player-modified chunk on world load.
+  preloadChunk(chunkX: number, chunkY: number, data: ChunkData): void {
+    const key = chunkKey(chunkX, chunkY);
+    // Saved chunks come back already in sync with disk and need GPU upload,
+    // so DIRTY_SIMULATION clears and DIRTY_RENDER stays.
+    this.cache.set(key, makeChunkRecord(data, CHUNK_FLAG_DIRTY_RENDER), this.currentKeepSet);
+  }
+
+  // Iterate every chunk that has unsaved player/sim changes. Save manager
+  // calls this to know what chunks to persist.
+  *dirtySimChunks(): IterableIterator<{ chunkX: number; chunkY: number; data: ChunkData }> {
+    for (const [key, record] of this.cache.entries()) {
+      if ((record.flags & CHUNK_FLAG_DIRTY_SIMULATION) === 0) continue;
+      const [cx, cy] = parseChunkKey(key);
+      yield { chunkX: cx, chunkY: cy, data: record.data };
+    }
+  }
+
+  // All cached chunk records by key. Used by the sim loop to find chunks
+  // that need ticking. Iterates without promoting LRU.
+  *allChunkRecords(): IterableIterator<[string, ChunkRecord]> {
+    yield* this.cache.entries();
+  }
+
+  clearSimulationDirty(chunkX: number, chunkY: number): void {
+    const record = this.peekChunk(chunkX, chunkY);
+    if (record) record.flags &= ~CHUNK_FLAG_DIRTY_SIMULATION;
   }
 
   update(rect: ChunkRect): void {
@@ -63,15 +128,18 @@ export class ChunkManager {
     }
     for (const key of toRemoveFromGpu) this.renderer.removeChunk(key);
 
-    // Walk the visible rect; install or request each chunk.
+    // Walk the visible rect; install, refresh, or request each chunk.
     for (let cy = rect.minY; cy < rect.maxY; cy++) {
       for (let cx = rect.minX; cx < rect.maxX; cx++) {
         const key = chunkKey(cx, cy);
-        if (this.renderer.hasChunk(key)) continue;
-
         const cached = this.cache.get(key);
+
         if (cached) {
-          this.uploadToGpu(key, cached, cx, cy);
+          const dirty = (cached.flags & CHUNK_FLAG_DIRTY_RENDER) !== 0;
+          if (!this.renderer.hasChunk(key) || dirty) {
+            this.uploadToGpu(key, cached.data, cx, cy);
+            cached.flags &= ~CHUNK_FLAG_DIRTY_RENDER;
+          }
           continue;
         }
 
@@ -95,9 +163,12 @@ export class ChunkManager {
         this.inFlight.delete(key);
         // Always cache (cheap; lets future pans hit). Pass current keepSet
         // as protected so freshly visible chunks aren't evicted to make room.
-        this.cache.set(key, data, this.currentKeepSet);
+        this.cache.set(key, makeChunkRecord(data, CHUNK_FLAG_DIRTY_RENDER), this.currentKeepSet);
         if (this.currentKeepSet.has(key) && !this.renderer.hasChunk(key)) {
           this.uploadToGpu(key, data, chunkX, chunkY);
+          // Clear render dirty since we just uploaded.
+          const rec = this.peekChunk(chunkX, chunkY);
+          if (rec) rec.flags &= ~CHUNK_FLAG_DIRTY_RENDER;
         }
       })
       .catch((err) => {
