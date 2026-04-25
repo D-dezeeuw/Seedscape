@@ -1,20 +1,31 @@
-// Player progression state. Phase 3 wires the fields but doesn't earn from
-// them; Phase 4 hooks the economy in. Notification channel mirrors Inventory
-// so the HUD can re-render on change.
+// Player progression state. Phase 3 wired the fields without earning; Phase 4
+// hooks XP earn (harvest, sell, production cycle), coin earn (NPC sell), coin
+// spend (shop), and recomputes level + unlock set on every XP change.
+//
+// Notification channel mirrors Inventory so the HUD can re-render on change.
+
+import { levelForXp } from "./level";
+import { newUnlocksAtLevel } from "./unlocks";
 
 export interface PlayerSnapshot {
   coins: number;
   xp: number;
+  // `level` is derived from xp and stored only for save round-trip; on load
+  // we recompute it so a tweak to the XP curve doesn't strand old saves.
   level: number;
 }
 
 export type PlayerListener = (snapshot: PlayerSnapshot) => void;
+// Fired once per level-up with the level the player just reached. UI uses
+// this to show a "new unlocks!" toast.
+export type LevelUpListener = (newLevel: number) => void;
 
 export class Player {
   private _coins = 0;
   private _xp = 0;
   private _level = 1;
   private readonly listeners = new Set<PlayerListener>();
+  private readonly levelUpListeners = new Set<LevelUpListener>();
 
   get coins(): number {
     return this._coins;
@@ -31,15 +42,32 @@ export class Player {
     this._coins = value;
     this.fire();
   }
+
+  // Direct setters retained for save load; gameplay code should use addXp
+  // / addCoins / spendCoins.
   set xp(value: number) {
-    if (value === this._xp) return;
-    this._xp = value;
+    this.setXp(value);
+  }
+
+  addXp(amount: number): void {
+    if (amount <= 0) return;
+    this.setXp(this._xp + amount);
+  }
+
+  addCoins(amount: number): void {
+    if (amount <= 0) return;
+    this._coins += amount;
     this.fire();
   }
-  set level(value: number) {
-    if (value === this._level) return;
-    this._level = value;
+
+  // Returns false if the player can't afford the cost; state unchanged.
+  spendCoins(amount: number): boolean {
+    if (amount < 0) throw new Error(`Player.spendCoins expects amount >= 0, got ${amount}`);
+    if (amount === 0) return true;
+    if (this._coins < amount) return false;
+    this._coins -= amount;
     this.fire();
+    return true;
   }
 
   toJSON(): PlayerSnapshot {
@@ -49,13 +77,39 @@ export class Player {
   loadFromJSON(snapshot: PlayerSnapshot): void {
     this._coins = snapshot.coins;
     this._xp = snapshot.xp;
-    this._level = snapshot.level;
+    // Always recompute level from xp on load — the XP curve is the source of
+    // truth, the saved level is just a presentation cache.
+    this._level = levelForXp(this._xp);
     this.fire();
   }
 
   subscribe(listener: PlayerListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeLevelUp(listener: LevelUpListener): () => void {
+    this.levelUpListeners.add(listener);
+    return () => this.levelUpListeners.delete(listener);
+  }
+
+  private setXp(value: number): void {
+    if (value === this._xp) return;
+    const previousLevel = this._level;
+    this._xp = value;
+    const nextLevel = levelForXp(value);
+    this._level = nextLevel;
+    this.fire();
+    // Walk every level crossed (handles big XP grants from save/load too).
+    if (nextLevel > previousLevel) {
+      for (let lvl = previousLevel + 1; lvl <= nextLevel; lvl++) {
+        // Only fire if there's something interesting at that level — the
+        // listener decides what to do with it (UI toast, sound, etc).
+        if (newUnlocksAtLevel(lvl).length > 0 || lvl === nextLevel) {
+          for (const listener of this.levelUpListeners) listener(lvl);
+        }
+      }
+    }
   }
 
   private fire(): void {

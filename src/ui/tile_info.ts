@@ -6,6 +6,7 @@ import type { Camera } from "../input/camera";
 import { pickTile } from "../input/picker";
 import { tileIndex } from "../world/chunk";
 import type { ChunkManager } from "../world/chunk_manager";
+import { buildingForTile, getQueuedJobs } from "../world/farming/building_registry";
 import {
   CROP_STAGE_HARVESTABLE,
   CROP_STATE_WILTED,
@@ -38,6 +39,8 @@ function describeTile(tileId: number, state: number): string {
     if (state >= CROP_STAGE_HARVESTABLE) return `${crop.displayName} (ready)`;
     return `${crop.displayName} (stage ${state}/${CROP_STAGE_HARVESTABLE})`;
   }
+  const building = buildingForTile(tileId);
+  if (building) return building.displayName;
   return TILE_NAMES[tileId] ?? `Tile ${tileId}`;
 }
 
@@ -86,11 +89,26 @@ export function createTileInfo(deps: TileInfoDeps): () => void {
     const tileId = record.data.tileId[i] ?? 0;
     const state = record.data.state[i] ?? 0;
     const meta = record.data.metadata[i] ?? 0;
+    const building = buildingForTile(tileId);
+
+    let extra = "";
+    if (building) {
+      const queued = getQueuedJobs(meta);
+      const progress = state;
+      const status = progress === 0 ? "idle" : `${progress}/${building.cycleTime}s`;
+      extra = `
+        <div class="ss-row"><span>Status</span><span>${status}</span></div>
+        <div class="ss-row"><span>Queue</span><span>${queued}/${building.queueSize}</span></div>
+      `;
+    } else {
+      extra = `<div class="ss-row"><span>Water</span><span>${getWaterLevel(meta)}/3</span></div>`;
+    }
+
     body.innerHTML = `
       <div class="ss-row"><span>World</span><span>${pick.worldTileX}, ${pick.worldTileY}</span></div>
       <div class="ss-row"><span>Chunk</span><span>${pick.chunkX}, ${pick.chunkY}</span></div>
       <div class="ss-row"><span>Type</span><span>${describeTile(tileId, state)}</span></div>
-      <div class="ss-row"><span>Water</span><span>${getWaterLevel(meta)}/3</span></div>
+      ${extra}
     `;
   };
 

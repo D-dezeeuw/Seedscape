@@ -3,7 +3,11 @@
 // changed tiles. Pure: same input → identical output bytes.
 
 import { allocChunkData } from "../world/chunk";
-import { allocSimScratch, simulateChunkTick } from "../world/farming/sim_pipeline";
+import {
+  allocSimScratch,
+  type ProductionEvent,
+  simulateChunkTick,
+} from "../world/farming/sim_pipeline";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -31,6 +35,9 @@ export type SimResponse =
       deltaTileId: ArrayBuffer;
       deltaState: ArrayBuffer;
       deltaMetadata: ArrayBuffer;
+      // Production events ride along via structured clone — small list, not
+      // worth shaping into transferable buffers for Phase 4 throughput.
+      productionEvents: ProductionEvent[];
     }
   | { type: "error"; taskId: number; error: string };
 
@@ -69,6 +76,7 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
       deltaTileId: deltaTileId.buffer as ArrayBuffer,
       deltaState: deltaState.buffer as ArrayBuffer,
       deltaMetadata: deltaMetadata.buffer as ArrayBuffer,
+      productionEvents: delta.productionEvents,
     };
 
     self.postMessage(response, [

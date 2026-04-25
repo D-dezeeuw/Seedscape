@@ -1,24 +1,37 @@
 // Wires pointer-up events on the canvas through pickTile + the active tool
 // into the chunk's tile-action functions. Pointer drags are claimed by the
 // camera controls; this fires only on a click that didn't move (no drag).
-//
-// XP rewards on harvest are wired here for completeness, even though the
-// economy that consumes XP is Phase 4.
 
 import type { Inventory } from "../state/inventory";
-import { ITEM_IDS } from "../state/items";
+import { ITEM_IDS, type ItemId } from "../state/items";
 import type { Player } from "../state/player";
+import { isSeedUnlocked } from "../state/unlocks";
 import { CHUNK_FLAG_DIRTY_RENDER, CHUNK_FLAG_DIRTY_SIMULATION } from "../world/chunk";
 import type { ChunkManager } from "../world/chunk_manager";
+import { dismantleBuilding, enqueueJob, setBuildingTile } from "../world/farming/building_actions";
+import { buildingForTile } from "../world/farming/building_registry";
+import { cropForSeed } from "../world/farming/crop_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
 import { pickTile } from "./picker";
 import type { ToolState } from "./tool";
 
 const HARVEST_XP_PER_YIELD = 1;
-// A click is anything where the pointer moved less than this many pixels
-// between down and up. Anything more is treated as a camera drag.
+const PRODUCTION_FEED_XP = 2;
 const CLICK_DRAG_TOLERANCE_PX = 4;
+
+// Default seed for the plant tool when the player has multiple seed types.
+// Phase 4 picks the first seed in inventory in priority order. Replaced when
+// the UI grows a seed selector.
+const SEED_PRIORITY: ItemId[] = [ITEM_IDS.WHEAT_SEED, ITEM_IDS.CARROT_SEED, ITEM_IDS.CORN_SEED];
+
+function pickPlantSeed(inventory: Inventory, playerLevel: number): ItemId | null {
+  for (const seed of SEED_PRIORITY) {
+    if (!isSeedUnlocked(playerLevel, seed)) continue;
+    if (inventory.has(seed, 1)) return seed;
+  }
+  return null;
+}
 
 export interface TileInteractionDeps {
   canvas: HTMLCanvasElement;
@@ -28,7 +41,6 @@ export interface TileInteractionDeps {
   player: Player;
   chunkManager: ChunkManager;
   tileWorldSize: number;
-  // Called whenever the player edits a tile so HUD/info panels can refresh.
   onEdit?: (chunkX: number, chunkY: number) => void;
 }
 
@@ -78,10 +90,13 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
         break;
       }
       case "plant": {
-        if (!inventory.has(ITEM_IDS.WHEAT_SEED, 1)) return;
-        const result = plantSeed(record.data, pick.localX, pick.localY, ITEM_IDS.WHEAT_SEED);
+        const seed = pickPlantSeed(inventory, player.level);
+        if (!seed) return;
+        const def = cropForSeed(seed);
+        if (!def) return;
+        const result = plantSeed(record.data, pick.localX, pick.localY, seed);
         if (result.applied) {
-          inventory.remove(ITEM_IDS.WHEAT_SEED, 1);
+          inventory.remove(seed, 1);
           edited = true;
         }
         break;
@@ -95,10 +110,45 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
         if (result.applied) {
           if (result.yield && result.produceItem) {
             inventory.add(result.produceItem, result.yield);
-            player.xp = player.xp + result.yield * HARVEST_XP_PER_YIELD;
+            player.addXp(result.yield * HARVEST_XP_PER_YIELD);
           }
           edited = true;
         }
+        break;
+      }
+      case "build": {
+        const buildingId = tool.selectedBuildingId;
+        if (buildingId == null) return;
+        const def = buildingForTile(buildingId);
+        if (!def) return;
+        if (!player.spendCoins(def.placementCost)) return;
+        const result = setBuildingTile(record.data, pick.localX, pick.localY, def);
+        if (!result.applied) {
+          // Refund — the player paid but the placement target was wrong.
+          player.addCoins(def.placementCost);
+          return;
+        }
+        edited = true;
+        // Stay in build mode; the user can place multiple of the same kind
+        // until they switch tools or pick a different one in the shop.
+        break;
+      }
+      case "feed": {
+        const i = pick.localY * 32 + pick.localX;
+        const tileId = record.data.tileId[i] ?? 0;
+        const def = buildingForTile(tileId);
+        if (!def) return;
+        if (!inventory.has(def.inputItem, def.inputQuantity)) return;
+        const result = enqueueJob(record.data, pick.localX, pick.localY);
+        if (result.applied) {
+          inventory.remove(def.inputItem, def.inputQuantity);
+          player.addXp(PRODUCTION_FEED_XP);
+          edited = true;
+        }
+        break;
+      }
+      case "dismantle": {
+        edited = dismantleBuilding(record.data, pick.localX, pick.localY).applied;
         break;
       }
       default:
