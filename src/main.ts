@@ -4,12 +4,19 @@ import { Camera } from "./input/camera";
 import { attachCameraControls } from "./input/camera_controls";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
-import { buildInstanceBuffer, CHUNK_SIZE, createStaticChunk } from "./world/static_chunk";
+import { GenerationPool } from "./workers/generation_pool";
+import { ChunkManager } from "./world/chunk_manager";
+import { visibleChunkRect } from "./world/coords";
 
-// Phase 1 hardcoded world: a 16x16 grid of static chunks = 262144 tiles, which
-// satisfies the 200K-tile baseline from the roadmap.
-const WORLD_CHUNKS_PER_SIDE = 16;
 const TILE_WORLD_SIZE = 1.0;
+const WORLD_SEED = 0xc0ffee;
+// Cache enough chunks to keep recently-visited area resident. Per
+// docs/06_memory_performance.md MAX_CACHED_CHUNKS=512 is the long-term target;
+// 256 is a comfortable Phase 2 starting point (~5MB CPU + ~4MB GPU at peak).
+const CACHE_CAPACITY = 256;
+// Generation lead: keep this many chunks of margin outside the camera frustum
+// so chunks finish generating before they scroll into view.
+const STREAM_MARGIN_CHUNKS = 2;
 
 // Atlas manifest is locked in data/tiles.json. Mirrored here so the renderer
 // boots without a JSON fetch on first frame; if these drift, the loader's
@@ -54,26 +61,18 @@ async function bootstrap(): Promise<void> {
 
   const atlas = await loadAtlas(gl, "/atlas.png", ATLAS_MANIFEST);
   const renderer = new InstancedTileRenderer(gl, atlas, TILE_WORLD_SIZE);
-
-  for (let cy = 0; cy < WORLD_CHUNKS_PER_SIDE; cy++) {
-    for (let cx = 0; cx < WORLD_CHUNKS_PER_SIDE; cx++) {
-      const chunk = createStaticChunk(cy * WORLD_CHUNKS_PER_SIDE + cx + 1);
-      const instanceData = buildInstanceBuffer(chunk, cx * CHUNK_SIZE, cy * CHUNK_SIZE);
-      renderer.addChunk(instanceData);
-    }
-  }
+  const pool = new GenerationPool(WORLD_SEED);
+  await pool.ready();
+  const chunkManager = new ChunkManager({ pool, renderer, cacheCapacity: CACHE_CAPACITY });
 
   const camera = new Camera();
-  // Center camera on the world midpoint.
-  const worldSpan = WORLD_CHUNKS_PER_SIDE * CHUNK_SIZE * TILE_WORLD_SIZE;
-  camera.x = worldSpan / 2;
-  camera.y = worldSpan / 2;
+  // Bloomridge starter origin: open the world centered on chunk (0,0).
+  camera.x = 0;
+  camera.y = 0;
 
   const detachControls = attachCameraControls(camera, canvas);
 
   const overlay = createFpsOverlay(document.body);
-  overlay.setChunkCount(renderer.chunkCount);
-  overlay.setTileCount(renderer.tileCount);
 
   gl.clearColor(0.1, 0.15, 0.2, 1.0);
   gl.disable(gl.DEPTH_TEST);
@@ -86,6 +85,20 @@ async function bootstrap(): Promise<void> {
     }
     camera.updateViewProjection(canvas.width, canvas.height);
 
+    const rect = visibleChunkRect(
+      camera.x,
+      camera.y,
+      canvas.width,
+      canvas.height,
+      camera.zoom,
+      TILE_WORLD_SIZE,
+      STREAM_MARGIN_CHUNKS,
+    );
+    chunkManager.update(rect);
+
+    overlay.setChunkCount(renderer.chunkCount);
+    overlay.setTileCount(renderer.tileCount);
+
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
@@ -95,7 +108,14 @@ async function bootstrap(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  window.addEventListener("beforeunload", detachControls, { once: true });
+  window.addEventListener(
+    "beforeunload",
+    () => {
+      detachControls();
+      pool.terminate();
+    },
+    { once: true },
+  );
 }
 
 bootstrap().catch(showFatalError);
