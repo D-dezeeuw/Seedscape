@@ -135,10 +135,20 @@ export function injectUiStyles(): void {
       opacity: 1;
     }
     .ss-debug {
-      bottom: 80px; left: 8px; min-width: 160px;
+      bottom: 80px; left: 8px; min-width: 180px;
       border-color: rgba(232, 196, 104, 0.4);
     }
     .ss-debug h3 { color: #e8c468; }
+    .ss-debug-toggle {
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ss-debug-toggle:hover {
+      color: #f5d680;
+    }
     .ss-debug-row {
       display: flex; gap: 4px; margin-bottom: 4px;
     }
