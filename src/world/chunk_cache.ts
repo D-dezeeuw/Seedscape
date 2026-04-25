@@ -66,9 +66,12 @@ export class ChunkCache<V> {
   }
 
   // Iterate in MRU-first order without exposing the map. Used by tests and by
-  // ChunkManager when it needs to render in deterministic order.
-  *entries(): IterableIterator<[string, V]> {
-    yield* this.map.entries();
+  // ChunkManager when it needs to render in deterministic order. Returns the
+  // Map's iterator directly so generator-method chaining doesn't get hit by
+  // any host quirks (some bundlers compile class generators into helpers
+  // whose returned object isn't recognized by `yield*` in another generator).
+  entries(): IterableIterator<[string, V]> {
+    return this.map.entries();
   }
 
   private evictUntilWithinCapacity(protectedKeys: ReadonlySet<string> | undefined): void {
