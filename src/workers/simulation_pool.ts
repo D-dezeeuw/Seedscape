@@ -115,6 +115,7 @@ export class SimulationPool {
           tileId: new Uint16Array(msg.deltaTileId),
           state: new Uint8Array(msg.deltaState),
           metadata: new Uint8Array(msg.deltaMetadata),
+          productionEvents: msg.productionEvents,
         },
       });
       this.tryDispatch();

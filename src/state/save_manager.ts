@@ -6,9 +6,12 @@ import type { Camera } from "../input/camera";
 import type { IoClient } from "../workers/io_client";
 import type { ChunkManager } from "../world/chunk_manager";
 import type { Inventory } from "./inventory";
+import type { NpcOrder, OrderBook } from "./orders";
 import type { Player, PlayerSnapshot } from "./player";
 
-export const SAVE_VERSION = 1;
+// Bumped from 1 to 2 in Phase 4 — Snapshot now carries orders + an absolute
+// game-second clock. Older saves are dropped on load.
+export const SAVE_VERSION = 2;
 
 export interface SavedChunk {
   chunkX: number;
@@ -25,6 +28,10 @@ export interface Snapshot {
   player: PlayerSnapshot;
   inventory: Record<number, number>;
   chunks: SavedChunk[];
+  orders: { orders: NpcOrder[]; nextRefreshSec: number };
+  // Wall-clock seconds since the world started (game time, not real time).
+  // Lets the order book know how to schedule next refresh on load.
+  gameTimeSec: number;
 }
 
 export interface SaveManagerDeps {
@@ -34,6 +41,9 @@ export interface SaveManagerDeps {
   player: Player;
   inventory: Inventory;
   chunkManager: ChunkManager;
+  orders: OrderBook;
+  // Function returning the current game-time-seconds when called.
+  gameTimeSec: () => number;
 }
 
 export class SaveManager {
@@ -46,9 +56,6 @@ export class SaveManager {
   buildSnapshot(): Snapshot {
     const chunks: SavedChunk[] = [];
     for (const { chunkX, chunkY, data } of this.deps.chunkManager.dirtySimChunks()) {
-      // Copy the buffers — the in-memory chunk continues to exist and we
-      // don't want the IO worker to receive references that the main thread
-      // will mutate.
       chunks.push({
         chunkX,
         chunkY,
@@ -64,15 +71,14 @@ export class SaveManager {
       player: this.deps.player.toJSON(),
       inventory: this.deps.inventory.toJSON(),
       chunks,
+      orders: this.deps.orders.toJSON(),
+      gameTimeSec: this.deps.gameTimeSec(),
     };
   }
 
   async save(): Promise<void> {
     const snapshot = this.buildSnapshot();
     await this.deps.io.save(snapshot);
-    // Clear DIRTY_SIMULATION on chunks we just persisted; only main thread
-    // mutates flags so this is safe even if a sim is in flight (sim doesn't
-    // touch flags).
     for (const c of snapshot.chunks) {
       this.deps.chunkManager.clearSimulationDirty(c.chunkX, c.chunkY);
     }
@@ -96,6 +102,7 @@ export class SaveManager {
     this.deps.camera.zoom = snapshot.camera.zoom;
     this.deps.player.loadFromJSON(snapshot.player);
     this.deps.inventory.loadFromJSON(snapshot.inventory);
+    this.deps.orders.loadFromJSON(snapshot.orders);
     for (const c of snapshot.chunks) {
       this.deps.chunkManager.preloadChunk(c.chunkX, c.chunkY, {
         tileId: c.tileId,

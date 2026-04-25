@@ -8,12 +8,18 @@ import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
+import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
 import { SaveManager } from "./state/save_manager";
+import { newUnlocksAtLevel } from "./state/unlocks";
+import { createDebugPanel } from "./ui/debug_panel";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
+import { createOrdersPanel } from "./ui/orders_panel";
+import { createShopMenu } from "./ui/shop_menu";
 import { injectUiStyles } from "./ui/styles";
 import { createTileInfo } from "./ui/tile_info";
+import { createToaster } from "./ui/toast";
 import { createToolSelector } from "./ui/tool_selector";
 import { GenerationPool } from "./workers/generation_pool";
 import { IoClient } from "./workers/io_client";
@@ -22,6 +28,7 @@ import {
   CHUNK_FLAG_DIRTY_RENDER,
   CHUNK_FLAG_DIRTY_SIMULATION,
   type ChunkRecord,
+  tileIndex,
 } from "./world/chunk";
 import { ChunkManager } from "./world/chunk_manager";
 import { visibleChunkRect } from "./world/coords";
@@ -31,12 +38,12 @@ const TILE_WORLD_SIZE = 1.0;
 const WORLD_SEED = 0xc0ffee;
 const CACHE_CAPACITY = 256;
 const STREAM_MARGIN_CHUNKS = 2;
-// Sim cadence: 1 tick per second. Wheat (baseRate=1.0) advances one stage
-// per tick → 7 seconds from seed to harvestable.
 const SIM_TICK_MS = 1000;
-// Auto-save cadence: every 30 seconds, plus on tab visibility change.
 const AUTOSAVE_MS = 30_000;
 const STARTING_WHEAT_SEEDS = 100;
+// Production XP per output unit emitted by a building cycle. Keeps level
+// progression tied to actually running the chain, not just selling.
+const PRODUCTION_XP_PER_OUTPUT = 2;
 
 const ATLAS_MANIFEST: AtlasManifest = {
   textureSize: 2048,
@@ -97,6 +104,11 @@ async function bootstrap(): Promise<void> {
   const player = new Player();
   const inventory = new Inventory();
   inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
+  const orders = new OrderBook(0);
+
+  // Game time: advances 1 second per sim tick. Stored separately from
+  // `tick` so save/load can preserve it across sessions.
+  let gameTimeSec = 0;
 
   const saveManager = new SaveManager({
     io: ioClient,
@@ -105,10 +117,18 @@ async function bootstrap(): Promise<void> {
     player,
     inventory,
     chunkManager,
+    orders,
+    gameTimeSec: () => gameTimeSec,
   });
 
   const existingSave = await saveManager.load();
-  if (existingSave) saveManager.applySnapshot(existingSave);
+  if (existingSave) {
+    saveManager.applySnapshot(existingSave);
+    gameTimeSec = existingSave.gameTimeSec;
+  }
+  // Prime an order list either way (refreshes immediately at gameTimeSec=0
+  // on a fresh world; on load the saved nextRefreshSec drives the schedule).
+  orders.tick(gameTimeSec);
 
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
@@ -125,6 +145,13 @@ async function bootstrap(): Promise<void> {
 
   const detachHud = createHud(document.body, player);
   const detachInv = createInventoryPanel(document.body, inventory);
+  const detachOrders = createOrdersPanel({
+    parent: document.body,
+    orders,
+    inventory,
+    player,
+  });
+  const detachShop = createShopMenu({ parent: document.body, inventory, player, tool });
   const detachTool = createToolSelector(document.body, tool);
   const detachInfo = createTileInfo({
     parent: document.body,
@@ -133,6 +160,21 @@ async function bootstrap(): Promise<void> {
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
   });
+  const toaster = createToaster(document.body);
+
+  // Dev-only debug panel (tree-shaken from production builds).
+  const detachDebug = import.meta.env.DEV
+    ? createDebugPanel({ parent: document.body, player, inventory })
+    : () => {};
+
+  // Surface level-ups to the player. Listing the new unlocks gives the
+  // notification something specific to say.
+  const detachLevelUp = player.subscribeLevelUp((level) => {
+    const unlocks = newUnlocksAtLevel(level);
+    const tail =
+      unlocks.length === 0 ? "" : ` — unlocked: ${unlocks.map((u) => u.displayName).join(", ")}`;
+    toaster.show(`Level ${level}!${tail}`);
+  });
 
   const overlay = createFpsOverlay(document.body);
 
@@ -140,17 +182,17 @@ async function bootstrap(): Promise<void> {
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
 
-  // Sim loop: each tick, dispatch one sim task per visible chunk that has at
-  // least one crop in it. Buffers travel via Transfer; while a sim is in
-  // flight the chunk's data lives in the worker — main thread must wait for
-  // the result before reading or editing the chunk again. The `inFlightKeys`
-  // set enforces "at most one outstanding sim per chunk" per the chunk-work
-  // skill's hard rules.
+  // Sim loop: each tick, dispatch one sim task per cached chunk that has a
+  // crop or building in it. Building production events come back inside the
+  // sim delta and get translated into player-inventory adds + XP here.
   let tick = 0;
   const inFlightKeys = new Set<string>();
 
   const runSimTick = (): void => {
     tick += 1;
+    gameTimeSec += 1;
+    orders.tick(gameTimeSec);
+
     for (const key of getSimulatableChunkKeys(chunkManager)) {
       if (inFlightKeys.has(key)) continue;
       const [cxStr, cyStr] = key.split(",");
@@ -163,11 +205,15 @@ async function bootstrap(): Promise<void> {
         .tick(chunkX, chunkY, tick, record.data)
         .then((result) => {
           inFlightKeys.delete(key);
-          // The pool copied the chunk before transferring, so record.data is
-          // still live. Apply only the delta if anything changed.
           if (result.delta.count > 0) {
             applySimDelta(record.data, result.delta);
             record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+          }
+          // Apply production events to the player. Indices in the event are
+          // tile-local; the building tile id is at chunk.data.tileId[i].
+          for (const ev of result.delta.productionEvents) {
+            inventory.add(ev.itemId as never, ev.quantity);
+            player.addXp(ev.quantity * PRODUCTION_XP_PER_OUTPUT);
           }
         })
         .catch((err) => {
@@ -178,8 +224,6 @@ async function bootstrap(): Promise<void> {
   };
   const simInterval = window.setInterval(runSimTick, SIM_TICK_MS);
 
-  // Auto-save loop. Save fires only when there's at least one dirty
-  // simulation chunk so we don't spam IndexedDB on idle.
   let savePromise: Promise<void> = Promise.resolve();
   const triggerSave = (): void => {
     savePromise = savePromise
@@ -200,8 +244,6 @@ async function bootstrap(): Promise<void> {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
-    // Camera + visibility math runs in CSS pixels so it matches the picker
-    // and DOM event coords; backing-pixel sizes only feed gl.viewport above.
     camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
@@ -236,8 +278,13 @@ async function bootstrap(): Promise<void> {
       detachInteraction();
       detachHud();
       detachInv();
+      detachOrders();
+      detachShop();
       detachTool();
       detachInfo();
+      detachLevelUp();
+      detachDebug();
+      toaster.destroy();
       generationPool.terminate();
       simulationPool.terminate();
       ioClient.terminate();
@@ -246,24 +293,29 @@ async function bootstrap(): Promise<void> {
   );
 }
 
-// Inspect every cached chunk and return keys for chunks whose data contains
-// at least one crop tile. Walking 1024 tile slots × N chunks once per second
-// is cheap (microseconds at MVP scale).
+// Walk every cached chunk; return keys whose data contains a crop OR a
+// building (both need ticking). 1024 tile slots × N chunks per second is
+// cheap at MVP scale.
 function getSimulatableChunkKeys(chunkManager: ChunkManager): string[] {
   const out: string[] = [];
   for (const [key, record] of chunkManager.allChunkRecords()) {
-    if (chunkHasCrop(record)) out.push(key);
+    if (chunkHasSimulatable(record)) out.push(key);
   }
   return out;
 }
 
-function chunkHasCrop(record: ChunkRecord): boolean {
+function chunkHasSimulatable(record: ChunkRecord): boolean {
   const ids = record.data.tileId;
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i] as number;
-    if (id >= 100 && id <= 199) return true;
+    // Crops 100..199 and buildings 200..299 both need ticking.
+    if (id >= 100 && id <= 299) return true;
   }
   return false;
 }
+
+// Re-export tileIndex so the sim handler above can reference building tile
+// ids by tile index without cross-importing into the wrong layer.
+void tileIndex;
 
 bootstrap().catch(showFatalError);

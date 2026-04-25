@@ -1,9 +1,18 @@
-// Bottom-center toolbar: pan / till / plant / water / harvest. Click a button
-// to switch tool; the active tool is highlighted.
+// Bottom-center toolbar. Click a button to switch tool; the active tool is
+// highlighted. The "build" tool is hidden from the toolbar — the shop menu
+// (see shop.ts) is the entry point that pre-selects which building to place.
 
 import { TOOL_LABELS, type Tool, type ToolState } from "../input/tool";
 
-const TOOL_ORDER: ReadonlyArray<Tool> = ["none", "till", "plant", "water", "harvest"];
+const TOOL_ORDER: ReadonlyArray<Tool> = [
+  "none",
+  "till",
+  "plant",
+  "water",
+  "harvest",
+  "feed",
+  "dismantle",
+];
 
 export function createToolSelector(parent: HTMLElement, tool: ToolState): () => void {
   const panel = document.createElement("div");
@@ -20,12 +29,12 @@ export function createToolSelector(parent: HTMLElement, tool: ToolState): () => 
   }
   parent.appendChild(panel);
 
-  const render = (current: Tool): void => {
+  const render = (snapshot: { current: Tool }): void => {
     for (const [t, btn] of buttons) {
-      btn.classList.toggle("ss-active", t === current);
+      btn.classList.toggle("ss-active", t === snapshot.current);
     }
   };
-  render(tool.current);
+  render({ current: tool.current });
   const unsubscribe = tool.subscribe(render);
 
   return () => {

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { ITEM_IDS } from "../../state/items";
 import { allocChunkData, tileIndex } from "../chunk";
+import { enqueueJob, setBuildingTile } from "./building_actions";
+import { buildingForTile, getQueuedJobs } from "./building_registry";
 import { CROP_STAGE_HARVESTABLE } from "./crop_registry";
 import {
   allocSimScratch,
@@ -11,11 +13,19 @@ import {
 import { plantSeed, setWaterLevel, waterTile } from "./tile_actions";
 
 const TILE_FARMLAND_TILLED = 13;
+const MILL = buildingForTile(200);
+if (!MILL) throw new Error("missing mill in registry");
 
 function plant(c: ReturnType<typeof allocChunkData>, x: number, y: number): void {
   c.tileId[tileIndex(x, y)] = TILE_FARMLAND_TILLED;
   plantSeed(c, x, y, ITEM_IDS.WHEAT_SEED);
   waterTile(c, x, y); // saturate to water=3
+}
+
+function placeMill(c: ReturnType<typeof allocChunkData>, x: number, y: number): void {
+  if (!MILL) throw new Error("missing mill in registry");
+  c.tileId[tileIndex(x, y)] = TILE_FARMLAND_TILLED;
+  setBuildingTile(c, x, y, MILL);
 }
 
 describe("simulateChunkTick", () => {
@@ -102,5 +112,48 @@ describe("simulateChunkTick", () => {
     expect(Array.from(da.state.slice(0, da.count))).toEqual(
       Array.from(db.state.slice(0, db.count)),
     );
+  });
+
+  test("idle building stays idle until queued", () => {
+    const c = allocChunkData();
+    placeMill(c, 1, 1);
+    const scratch = allocSimScratch();
+    for (let tick = 1; tick <= 3; tick++) {
+      applySimDelta(c, simulateChunkTick(c, tick, scratch));
+    }
+    expect(c.state[tileIndex(1, 1)]).toBe(0); // still idle
+    expect(getQueuedJobs(c.metadata[tileIndex(1, 1)] as number)).toBe(0);
+  });
+
+  test("queued building progresses each tick and emits production event on completion", () => {
+    const c = allocChunkData();
+    placeMill(c, 1, 1);
+    enqueueJob(c, 1, 1);
+    const scratch = allocSimScratch();
+    let lastEvents: ReturnType<typeof simulateChunkTick>["productionEvents"] = [];
+    // Run enough ticks to complete one cycle (tick 1 starts, then advances
+    // to tick=cycleTime where it emits).
+    for (let tick = 1; tick <= MILL.cycleTime + 2; tick++) {
+      const delta = simulateChunkTick(c, tick, scratch);
+      applySimDelta(c, delta);
+      if (delta.productionEvents.length > 0) lastEvents = delta.productionEvents;
+    }
+    expect(lastEvents.length).toBe(1);
+    expect(lastEvents[0]?.itemId).toBe(MILL.outputItem);
+    expect(lastEvents[0]?.quantity).toBe(MILL.outputQuantity);
+    // Building should be back to idle after the emit tick.
+    expect(c.state[tileIndex(1, 1)]).toBe(0);
+  });
+
+  test("building does not emit production until cycle completes", () => {
+    const c = allocChunkData();
+    placeMill(c, 0, 0);
+    enqueueJob(c, 0, 0);
+    const scratch = allocSimScratch();
+    for (let tick = 1; tick < MILL.cycleTime; tick++) {
+      const delta = simulateChunkTick(c, tick, scratch);
+      applySimDelta(c, delta);
+      expect(delta.productionEvents.length).toBe(0);
+    }
   });
 });
