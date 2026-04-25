@@ -134,6 +134,19 @@ export function injectUiStyles(): void {
     .ss-toast.ss-toast-visible {
       opacity: 1;
     }
+    .ss-debug {
+      bottom: 80px; left: 8px; min-width: 160px;
+      border-color: rgba(232, 196, 104, 0.4);
+    }
+    .ss-debug h3 { color: #e8c468; }
+    .ss-debug-row {
+      display: flex; gap: 4px; margin-bottom: 4px;
+    }
+    .ss-debug .ss-btn {
+      flex: 1;
+      padding: 4px 8px;
+      font-size: 11px;
+    }
   `;
   document.head.appendChild(style);
 }

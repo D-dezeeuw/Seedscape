@@ -12,6 +12,7 @@ import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { createDebugPanel } from "./ui/debug_panel";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
@@ -161,6 +162,11 @@ async function bootstrap(): Promise<void> {
   });
   const toaster = createToaster(document.body);
 
+  // Dev-only debug panel (tree-shaken from production builds).
+  const detachDebug = import.meta.env.DEV
+    ? createDebugPanel({ parent: document.body, player, inventory })
+    : () => {};
+
   // Surface level-ups to the player. Listing the new unlocks gives the
   // notification something specific to say.
   const detachLevelUp = player.subscribeLevelUp((level) => {
@@ -277,6 +283,7 @@ async function bootstrap(): Promise<void> {
       detachTool();
       detachInfo();
       detachLevelUp();
+      detachDebug();
       toaster.destroy();
       generationPool.terminate();
       simulationPool.terminate();
