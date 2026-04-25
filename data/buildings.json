@@ -1,0 +1,165 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/11_production_system.md",
+  "buildings": [
+    {
+      "id": 200,
+      "name": "mill",
+      "displayName": "Mill",
+      "tier": 1,
+      "inputItems": [{ "itemId": 100, "quantity": 3 }],
+      "outputItems": [{ "itemId": 700, "quantity": 2 }],
+      "cycleTime": 30,
+      "queueSize": 2,
+      "upgradeLevels": 4,
+      "unlockLevel": 3
+    },
+    {
+      "id": 201,
+      "name": "juicer",
+      "displayName": "Juicer",
+      "tier": 1,
+      "inputItems": [{ "itemId": 108, "quantity": 5 }],
+      "outputItems": [{ "itemId": 701, "quantity": 2 }],
+      "cycleTime": 20,
+      "queueSize": 2,
+      "upgradeLevels": 4,
+      "unlockLevel": 7
+    },
+    {
+      "id": 202,
+      "name": "smelter",
+      "displayName": "Smelter",
+      "tier": 1,
+      "inputItems": [{ "itemId": 600, "quantity": 2 }],
+      "outputItems": [{ "itemId": 702, "quantity": 1 }],
+      "cycleTime": 60,
+      "queueSize": 2,
+      "upgradeLevels": 4,
+      "unlockLevel": 5
+    },
+    {
+      "id": 203,
+      "name": "sawmill",
+      "displayName": "Sawmill",
+      "tier": 1,
+      "inputItems": [{ "itemId": 601, "quantity": 3 }],
+      "outputItems": [{ "itemId": 703, "quantity": 2 }],
+      "cycleTime": 25,
+      "queueSize": 2,
+      "upgradeLevels": 4,
+      "unlockLevel": 1
+    },
+    {
+      "id": 210,
+      "name": "bakery",
+      "displayName": "Bakery",
+      "tier": 2,
+      "inputItems": [
+        { "itemId": 700, "quantity": 2 },
+        { "itemId": 800, "quantity": 1 }
+      ],
+      "outputItems": [{ "itemId": 710, "quantity": 3 }],
+      "cycleTime": 45,
+      "queueSize": 4,
+      "upgradeLevels": 4,
+      "unlockLevel": 5
+    },
+    {
+      "id": 211,
+      "name": "press",
+      "displayName": "Press",
+      "tier": 2,
+      "inputItems": [{ "itemId": 116, "quantity": 5 }],
+      "outputItems": [{ "itemId": 711, "quantity": 2 }],
+      "cycleTime": 40,
+      "queueSize": 4,
+      "upgradeLevels": 4,
+      "unlockLevel": 30
+    },
+    {
+      "id": 212,
+      "name": "dairy",
+      "displayName": "Dairy",
+      "tier": 2,
+      "inputItems": [{ "itemId": 801, "quantity": 3 }],
+      "outputItems": [{ "itemId": 712, "quantity": 2 }],
+      "cycleTime": 60,
+      "queueSize": 4,
+      "upgradeLevels": 4,
+      "unlockLevel": 15
+    },
+    {
+      "id": 213,
+      "name": "forge",
+      "displayName": "Forge",
+      "tier": 2,
+      "inputItems": [
+        { "itemId": 702, "quantity": 2 },
+        { "itemId": 602, "quantity": 1 }
+      ],
+      "outputItems": [{ "itemId": 713, "quantity": 1 }],
+      "cycleTime": 90,
+      "queueSize": 4,
+      "upgradeLevels": 4,
+      "unlockLevel": 15
+    },
+    {
+      "id": 220,
+      "name": "refinery",
+      "displayName": "Refinery",
+      "tier": 3,
+      "inputItems": [{ "itemId": 711, "quantity": 4 }],
+      "outputItems": [{ "itemId": 720, "quantity": 3 }],
+      "cycleTime": 120,
+      "queueSize": 6,
+      "upgradeLevels": 4,
+      "unlockLevel": 30
+    },
+    {
+      "id": 221,
+      "name": "lab",
+      "displayName": "Lab",
+      "tier": 3,
+      "inputItems": [
+        { "itemId": 603, "quantity": 2 },
+        { "itemId": 600, "quantity": 1 }
+      ],
+      "outputItems": [{ "itemId": 721, "quantity": 1 }],
+      "cycleTime": 180,
+      "queueSize": 6,
+      "upgradeLevels": 4,
+      "unlockLevel": 50
+    }
+  ],
+  "upgradeScaling": {
+    "cycleTimeMultipliers": [1.0, 0.85, 0.70, 0.55, 0.40],
+    "queueSizes": [2, 4, 6, 8, 10],
+    "outputBonuses": [1.0, 1.1, 1.2, 1.35, 1.5]
+  },
+  "irrigation": [
+    {
+      "id": 230,
+      "name": "well",
+      "displayName": "Well",
+      "range": 3,
+      "rechargeTicks": 10,
+      "unlockLevel": 1
+    },
+    {
+      "id": 231,
+      "name": "sprinkler",
+      "displayName": "Sprinkler",
+      "range": 5,
+      "rechargeTicks": 5,
+      "unlockLevel": 7
+    },
+    {
+      "id": 232,
+      "name": "irrigation",
+      "displayName": "Irrigation System",
+      "range": 8,
+      "rechargeTicks": 2,
+      "unlockLevel": 25
+    }
+  ]
+}

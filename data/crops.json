@@ -1,0 +1,70 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/09_farming_system.md",
+  "crops": [
+    {
+      "id": 100,
+      "name": "wheat",
+      "displayName": "Wheat",
+      "baseRate": 1.0,
+      "stageThreshold": 1.0,
+      "stages": 8,
+      "wiltThreshold": 240,
+      "harvestYield": 4,
+      "harvestVariance": 1,
+      "biomes": ["bloomridge"],
+      "unlockLevel": 1
+    },
+    {
+      "id": 108,
+      "name": "carrot",
+      "displayName": "Carrot",
+      "baseRate": 0.7,
+      "stageThreshold": 1.0,
+      "stages": 8,
+      "wiltThreshold": 200,
+      "harvestYield": 3,
+      "harvestVariance": 1,
+      "biomes": ["bloomridge"],
+      "unlockLevel": 1
+    },
+    {
+      "id": 116,
+      "name": "corn",
+      "displayName": "Corn",
+      "baseRate": 0.5,
+      "stageThreshold": 1.0,
+      "stages": 8,
+      "wiltThreshold": 280,
+      "harvestYield": 6,
+      "harvestVariance": 2,
+      "biomes": ["bloomridge"],
+      "unlockLevel": 3
+    },
+    {
+      "id": 124,
+      "name": "sunflower",
+      "displayName": "Sunflower",
+      "baseRate": 0.6,
+      "stageThreshold": 1.0,
+      "stages": 8,
+      "wiltThreshold": 220,
+      "harvestYield": 2,
+      "harvestVariance": 0,
+      "biomes": ["bloomridge"],
+      "unlockLevel": 5
+    },
+    {
+      "id": 132,
+      "name": "rice",
+      "displayName": "Rice",
+      "baseRate": 0.8,
+      "stageThreshold": 1.0,
+      "stages": 8,
+      "wiltThreshold": 999,
+      "harvestYield": 5,
+      "harvestVariance": 2,
+      "biomes": ["sunfen"],
+      "unlockLevel": 20
+    }
+  ]
+}

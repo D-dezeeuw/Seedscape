@@ -1,0 +1,38 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/12_progression_system.md",
+  "xpFormula": {
+    "baseXp": 100,
+    "exponent": 1.6
+  },
+  "xpRewards": {
+    "harvest": [1, 5],
+    "fulfillOrder": [10, 30],
+    "productionRun": [5, 15],
+    "newBuilding": 20,
+    "newChunk": 25,
+    "newBiome": 50
+  },
+  "unlocks": [
+    { "level": 1,  "type": "crop",     "targetId": 100, "name": "wheat" },
+    { "level": 1,  "type": "crop",     "targetId": 108, "name": "carrot" },
+    { "level": 1,  "type": "building", "targetId": 230, "name": "well" },
+    { "level": 1,  "type": "building", "targetId": 203, "name": "sawmill" },
+    { "level": 3,  "type": "building", "targetId": 200, "name": "mill" },
+    { "level": 3,  "type": "crop",     "targetId": 116, "name": "corn" },
+    { "level": 5,  "type": "building", "targetId": 202, "name": "smelter" },
+    { "level": 5,  "type": "building", "targetId": 210, "name": "bakery" },
+    { "level": 5,  "type": "crop",     "targetId": 124, "name": "sunflower" },
+    { "level": 7,  "type": "building", "targetId": 231, "name": "sprinkler" },
+    { "level": 7,  "type": "building", "targetId": 201, "name": "juicer" },
+    { "level": 10, "type": "biome",    "targetId": "stoneveil" },
+    { "level": 15, "type": "building", "targetId": 213, "name": "forge" },
+    { "level": 15, "type": "building", "targetId": 212, "name": "dairy" },
+    { "level": 20, "type": "biome",    "targetId": "sunfen" },
+    { "level": 20, "type": "crop",     "targetId": 132, "name": "rice" },
+    { "level": 25, "type": "building", "targetId": 232, "name": "irrigation" },
+    { "level": 30, "type": "building", "targetId": 220, "name": "refinery" },
+    { "level": 30, "type": "building", "targetId": 211, "name": "press" },
+    { "level": 40, "type": "biome",    "targetId": "voidsoil" },
+    { "level": 50, "type": "building", "targetId": 221, "name": "lab" }
+  ]
+}

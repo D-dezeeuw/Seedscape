@@ -1,0 +1,35 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/10_economy_system.md",
+  "currency": "coins",
+  "constraints": {
+    "minMultiplier": 0.4,
+    "maxMultiplier": 3.0,
+    "demandDecay": 0.95,
+    "supplyDecay": 0.90,
+    "economyTickSeconds": 30,
+    "orderRefreshSeconds": 60
+  },
+  "items": [
+    { "id": 100, "name": "wheat",        "category": "raw_crop",   "basePrice": 2 },
+    { "id": 108, "name": "carrot",       "category": "raw_crop",   "basePrice": 5 },
+    { "id": 116, "name": "corn",         "category": "raw_crop",   "basePrice": 4 },
+    { "id": 124, "name": "sunflower",    "category": "raw_crop",   "basePrice": 6 },
+    { "id": 132, "name": "rice",         "category": "raw_crop",   "basePrice": 8 },
+    { "id": 700, "name": "flour",        "category": "processed",  "basePrice": 12 },
+    { "id": 701, "name": "carrot_juice", "category": "final_good", "basePrice": 18 },
+    { "id": 702, "name": "iron_ingot",   "category": "material",   "basePrice": 40 },
+    { "id": 703, "name": "planks",       "category": "material",   "basePrice": 10 },
+    { "id": 710, "name": "bread",        "category": "final_good", "basePrice": 25 },
+    { "id": 711, "name": "corn_oil",     "category": "final_good", "basePrice": 30 },
+    { "id": 712, "name": "cheese",       "category": "final_good", "basePrice": 35 },
+    { "id": 713, "name": "tool",         "category": "final_good", "basePrice": 80 },
+    { "id": 720, "name": "fuel",         "category": "advanced",   "basePrice": 65 },
+    { "id": 721, "name": "component",    "category": "advanced",   "basePrice": 200 },
+    { "id": 600, "name": "iron_ore",     "category": "raw_material","basePrice": 6 },
+    { "id": 601, "name": "wood",         "category": "raw_material","basePrice": 3 },
+    { "id": 602, "name": "coal",         "category": "raw_material","basePrice": 5 },
+    { "id": 603, "name": "void_crystal", "category": "raw_material","basePrice": 50 },
+    { "id": 800, "name": "egg",          "category": "animal",     "basePrice": 8 },
+    { "id": 801, "name": "milk",         "category": "animal",     "basePrice": 10 }
+  ]
+}

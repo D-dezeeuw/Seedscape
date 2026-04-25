@@ -1,0 +1,117 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/08_biomes.md",
+  "biomes": [
+    {
+      "id": "bloomridge",
+      "displayName": "Bloomridge",
+      "isStarter": true,
+      "starterRadiusChunks": 16,
+      "climate": "temperate-moist",
+      "difficulty": "beginner",
+      "modifiers": {
+        "growthRate": 1.0,
+        "fertility": "high",
+        "weatherHazards": [],
+        "waterAccess": "easy"
+      },
+      "tileTable": {
+        "0": "shallow_water",
+        "1-2:high": "rich_soil",
+        "1-2:low": "dry_grass",
+        "3-5": "farmland",
+        "6-7": "rocky_outcrop"
+      },
+      "resources": [
+        { "name": "wheat_seeds", "rarity": "common" },
+        { "name": "carrot_seeds", "rarity": "common" },
+        { "name": "stone", "rarity": "common" },
+        { "name": "wood", "rarity": "common" },
+        { "name": "iron_ore", "rarity": "uncommon" }
+      ]
+    },
+    {
+      "id": "stoneveil",
+      "displayName": "Stoneveil Highlands",
+      "isStarter": false,
+      "climate": "cold-dry",
+      "difficulty": "intermediate",
+      "modifiers": {
+        "growthRate": 0.7,
+        "fertility": "low",
+        "weatherHazards": ["frost"],
+        "waterAccess": "hard"
+      },
+      "tileTable": {
+        "0-1:low": "gravel",
+        "2-4": "rocky_soil",
+        "5-6": "barren_stone",
+        "7": "cliff_face"
+      },
+      "resources": [
+        { "name": "iron_ore", "rarity": "common" },
+        { "name": "coal", "rarity": "common" },
+        { "name": "copper_ore", "rarity": "uncommon" },
+        { "name": "mountain_herbs", "rarity": "rare" },
+        { "name": "stone", "rarity": "abundant" }
+      ]
+    },
+    {
+      "id": "sunfen",
+      "displayName": "Sunfen Delta",
+      "isStarter": false,
+      "climate": "humid-warm",
+      "difficulty": "intermediate",
+      "modifiers": {
+        "growthRate": 1.3,
+        "fertility": "very-high",
+        "weatherHazards": ["floods"],
+        "waterAccess": "abundant",
+        "autoWater": 2
+      },
+      "tileTable": {
+        "0-1": "swamp_water",
+        "2-3:high": "mudflat",
+        "3-5:high": "deltaic_soil",
+        "5-7:low": "raised_grassland"
+      },
+      "resources": [
+        { "name": "rice_seeds", "rarity": "common" },
+        { "name": "reeds", "rarity": "common" },
+        { "name": "clay", "rarity": "common" },
+        { "name": "exotic_fish", "rarity": "uncommon" },
+        { "name": "rare_herbs", "rarity": "rare" }
+      ]
+    },
+    {
+      "id": "voidsoil",
+      "displayName": "Voidsoil Expanse",
+      "isStarter": false,
+      "climate": "arid-hostile",
+      "difficulty": "advanced",
+      "modifiers": {
+        "growthRate": 0.4,
+        "fertility": "very-low",
+        "weatherHazards": ["dust_storms"],
+        "waterAccess": "none"
+      },
+      "tileTable": {
+        "0-2": "cracked_void_earth",
+        "3-5": "ashen_soil",
+        "6-7": "obsidian_formation"
+      },
+      "resources": [
+        { "name": "void_crystals", "rarity": "uncommon" },
+        { "name": "ancient_ore", "rarity": "rare" },
+        { "name": "adapted_seeds", "rarity": "rare" },
+        { "name": "obsidian", "rarity": "common" }
+      ]
+    }
+  ],
+  "biomeAssignment": [
+    { "when": { "biomeNoise": "low", "moisture": "high" }, "biome": "sunfen" },
+    { "when": { "biomeNoise": "low", "moisture": "low" }, "biome": "bloomridge" },
+    { "when": { "biomeNoise": "high" }, "biome": "stoneveil" },
+    { "when": { "biomeNoise": "very-low", "moisture": "very-low" }, "biome": "voidsoil" }
+  ],
+  "transitionWidthChunks": 6
+}

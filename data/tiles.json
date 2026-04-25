@@ -1,0 +1,53 @@
+{
+  "$schema": "Schema defined in .claude/context/docs/05_data_model.md",
+  "_ranges": {
+    "ground": [0, 99],
+    "crops": [100, 199],
+    "buildings": [200, 299],
+    "decorations": [300, 399],
+    "animals": [400, 499],
+    "reserved": [500, 1023],
+    "rawMaterials": [600, 699],
+    "processedItems": [700, 799],
+    "animalProducts": [800, 899]
+  },
+  "atlas": {
+    "textureSize": 2048,
+    "tileSize": 32,
+    "tilesPerRow": 64,
+    "totalTiles": 4096
+  },
+  "ground": [
+    { "id": 0,  "name": "shallow_water" },
+    { "id": 1,  "name": "deep_water" },
+    { "id": 10, "name": "dry_grass" },
+    { "id": 11, "name": "rich_soil" },
+    { "id": 12, "name": "farmland_untilled" },
+    { "id": 13, "name": "farmland_tilled" },
+    { "id": 20, "name": "rocky_outcrop" },
+    { "id": 21, "name": "rocky_soil" },
+    { "id": 22, "name": "barren_stone" },
+    { "id": 23, "name": "cliff_face" },
+    { "id": 24, "name": "gravel" },
+    { "id": 30, "name": "swamp_water" },
+    { "id": 31, "name": "mudflat" },
+    { "id": 32, "name": "deltaic_soil" },
+    { "id": 33, "name": "raised_grassland" },
+    { "id": 40, "name": "cracked_void_earth" },
+    { "id": 41, "name": "ashen_soil" },
+    { "id": 42, "name": "obsidian_formation" }
+  ],
+  "stateFlags": {
+    "WILTED":   1,
+    "WATERED":  2,
+    "SELECTED": 4,
+    "ANIMATED": 8
+  },
+  "chunkFlags": {
+    "DIRTY_SIMULATION": 1,
+    "DIRTY_RENDER":     2,
+    "GENERATED":        4,
+    "CACHED":           8,
+    "ACTIVE":          16
+  }
+}
