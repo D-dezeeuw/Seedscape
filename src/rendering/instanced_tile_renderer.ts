@@ -1,4 +1,4 @@
-import { TILES_PER_CHUNK } from "../world/static_chunk";
+import { TILES_PER_CHUNK } from "../world/chunk";
 import type { AtlasTexture } from "./atlas";
 import { createProgram, getAttribLocation, getUniformLocation } from "./shader";
 import { TILE_FRAGMENT_SOURCE, TILE_VERTEX_SOURCE } from "./tile_shaders";
@@ -42,7 +42,7 @@ export class InstancedTileRenderer {
     atlas: WebGLUniformLocation;
     time: WebGLUniformLocation;
   };
-  private readonly chunks: ChunkHandle[] = [];
+  private readonly chunks = new Map<string, ChunkHandle>();
 
   constructor(gl: WebGL2RenderingContext, atlas: AtlasTexture, tileSize: number) {
     this.gl = gl;
@@ -73,8 +73,11 @@ export class InstancedTileRenderer {
     this.quadBuffer = quadBuffer;
   }
 
-  addChunk(instanceData: Float32Array): void {
-    const gl = this.gl;
+  // Add or replace the chunk identified by `key`. If a chunk with this key
+  // already exists its GL resources are released first. Reupload is the
+  // simplest correct DIRTY_RENDER path; later phases can grow this into an
+  // in-place bufferSubData if profiling demands it.
+  addChunk(key: string, instanceData: Float32Array): void {
     const expectedFloats = TILES_PER_CHUNK * INSTANCE_FLOATS_PER_TILE;
     if (instanceData.length !== expectedFloats) {
       throw new Error(
@@ -82,6 +85,9 @@ export class InstancedTileRenderer {
       );
     }
 
+    if (this.chunks.has(key)) this.removeChunk(key);
+
+    const gl = this.gl;
     const vao = gl.createVertexArray();
     if (!vao) throw new Error("gl.createVertexArray returned null");
     const instanceBuffer = gl.createBuffer();
@@ -120,15 +126,31 @@ export class InstancedTileRenderer {
     gl.bindVertexArray(null);
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-    this.chunks.push({ vao, instanceBuffer, instanceCount: TILES_PER_CHUNK });
+    this.chunks.set(key, { vao, instanceBuffer, instanceCount: TILES_PER_CHUNK });
+  }
+
+  removeChunk(key: string): void {
+    const handle = this.chunks.get(key);
+    if (!handle) return;
+    this.gl.deleteBuffer(handle.instanceBuffer);
+    this.gl.deleteVertexArray(handle.vao);
+    this.chunks.delete(key);
+  }
+
+  hasChunk(key: string): boolean {
+    return this.chunks.has(key);
+  }
+
+  *chunkKeys(): IterableIterator<string> {
+    yield* this.chunks.keys();
   }
 
   get chunkCount(): number {
-    return this.chunks.length;
+    return this.chunks.size;
   }
 
   get tileCount(): number {
-    return this.chunks.length * TILES_PER_CHUNK;
+    return this.chunks.size * TILES_PER_CHUNK;
   }
 
   draw(viewProjection: Float32Array, timeSeconds: number): void {
@@ -145,8 +167,7 @@ export class InstancedTileRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture);
     gl.uniform1i(this.uniformLocs.atlas, 0);
 
-    for (let i = 0; i < this.chunks.length; i++) {
-      const chunk = this.chunks[i] as ChunkHandle;
+    for (const chunk of this.chunks.values()) {
       gl.bindVertexArray(chunk.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, chunk.instanceCount);
     }
