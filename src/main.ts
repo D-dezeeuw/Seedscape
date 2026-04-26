@@ -5,6 +5,7 @@ import { attachCameraControls } from "./input/camera_controls";
 import { attachTileInteraction } from "./input/tile_interaction";
 import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
+import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
 import { Inventory } from "./state/inventory";
@@ -35,6 +36,7 @@ import {
 import { ChunkManager } from "./world/chunk_manager";
 import { visibleChunkRect } from "./world/coords";
 import { applySimDelta } from "./world/farming/sim_pipeline";
+import { isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
 const WORLD_SEED = 0xc0ffee;
@@ -89,6 +91,7 @@ async function bootstrap(): Promise<void> {
 
   const atlas = await loadAtlas(gl, "/atlas.png", ATLAS_MANIFEST);
   const renderer = new InstancedTileRenderer(gl, atlas, TILE_WORLD_SIZE);
+  const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
   const generationPool = new GenerationPool(WORLD_SEED);
   await generationPool.ready();
   const chunkManager = new ChunkManager({
@@ -274,7 +277,22 @@ async function bootstrap(): Promise<void> {
     if (document.visibilityState === "hidden") triggerSave();
   });
 
+  // Walkability lookup used by entity AI. Returns false if the chunk
+  // hasn't been generated yet — the wander code already falls back to
+  // home in that case.
+  const isWalkableTile = (worldTileX: number, worldTileY: number): boolean => {
+    const cx = Math.floor(worldTileX / 32);
+    const cy = Math.floor(worldTileY / 32);
+    const lx = ((worldTileX % 32) + 32) % 32;
+    const ly = ((worldTileY % 32) + 32) % 32;
+    const record = chunkManager.peekChunk(cx, cy);
+    if (!record) return false;
+    const id = record.data.tileId[ly * 32 + lx] ?? 0;
+    return isEntityWalkable(id);
+  };
+
   const start = performance.now();
+  let lastFrameMs = start;
   const frame = (timestampMs: number): void => {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
@@ -292,12 +310,25 @@ async function bootstrap(): Promise<void> {
     );
     chunkManager.update(rect);
 
+    // Entity tick — main thread, every frame, with elapsed dt. Cheap at
+    // MVP scale (≤16 entities). When count grows, batch into a fixed-step
+    // accumulator for determinism.
+    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
+    lastFrameMs = timestampMs;
+    entityManager.tick({
+      time: gameTimeSec,
+      dt,
+      worldSeed: WORLD_SEED,
+      isWalkable: isWalkableTile,
+    });
+
     overlay.setChunkCount(renderer.chunkCount);
     overlay.setTileCount(renderer.tileCount);
 
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
+    entityRenderer.draw(entityManager.iterate(), camera.viewProjection);
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -322,6 +353,7 @@ async function bootstrap(): Promise<void> {
       debugWindow?.destroy();
       detachLevelUp();
       toaster.destroy();
+      entityRenderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();
       ioClient.terminate();
