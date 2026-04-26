@@ -27,6 +27,10 @@ interface TileInfoDeps {
   entityManager?: EntityManager;
 }
 
+// Mirrors the `ground` array in data/tiles.json. Worldgen-v2 added 22
+// and 25; future biomes (Stoneveil 23/24, Sunfen 30-33, Voidsoil 40-42)
+// already have entries so they show up correctly the moment generation
+// starts producing them.
 const TILE_NAMES: Record<number, string> = {
   0: "Shallow Water",
   1: "Deep Water",
@@ -35,6 +39,18 @@ const TILE_NAMES: Record<number, string> = {
   12: "Untilled Farmland",
   13: "Tilled Farmland",
   20: "Rocky Outcrop",
+  21: "Rocky Soil",
+  22: "Barren Stone",
+  23: "Cliff Face",
+  24: "Gravel",
+  25: "Beach Sand",
+  30: "Swamp Water",
+  31: "Mudflat",
+  32: "Deltaic Soil",
+  33: "Raised Grassland",
+  40: "Cracked Void Earth",
+  41: "Ashen Soil",
+  42: "Obsidian Formation",
 };
 
 function describeTile(tileId: number, state: number): string {
