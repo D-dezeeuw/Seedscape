@@ -263,7 +263,7 @@ People are entities, not tiles — but they tick every sim cycle.
 | Memory per person         | ~256 bytes            |
 | Long-term store per person| ~1 KB                 |
 
-People sim runs in the same simulation worker as crop/building ticks. Pathfinding deferred to a dedicated worker (see [14_worker_architecture.md](14_worker_architecture.md)) when path requests exceed budget.
+People sim runs in the same simulation worker as crop/building ticks. Pathfinding lives in a dedicated worker — see [22_pathfinding.md](22_pathfinding.md) for the engine and the autonomous-job system this builds on.
 
 ---
 

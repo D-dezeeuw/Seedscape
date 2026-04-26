@@ -14,8 +14,11 @@ Workers are pure input/output systems. No shared mutable state. All communicatio
 | Simulation      | 2–4       | Crop tick, building tick, entity tick  |
 | Mesh builder    | 1–2       | Instance buffer preparation            |
 | IO              | 1         | Disk read/write (IndexedDB / server)   |
+| Pathfinding     | 1         | Tile-grid A*, walkability mirror       |
 
-Total workers: 6–11 (tuned to device core count).
+Total workers: 7–12 (tuned to device core count).
+
+Pathfinding details — protocol, walkability mirror, gridVersion cache — live in [22_pathfinding.md](22_pathfinding.md).
 
 ---
 

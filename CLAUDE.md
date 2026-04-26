@@ -73,6 +73,7 @@ Numbered reference. Read targeted docs based on task; do not pull all 19.
 | Progression / unlocks     | 12                         |
 | Networking (future)       | 16                         |
 | People sim (future)       | 18                         |
+| Pathfinding / AI jobs     | 22                         |
 
 Full index: [.claude/context/docs/INDEX.md](.claude/context/docs/INDEX.md)
 

@@ -39,6 +39,7 @@ Numbered reference. Pull targeted docs per task — do not load all at once.
 - [13_chunk_lifecycle.md](13_chunk_lifecycle.md) — Chunk state machine
 - [14_worker_architecture.md](14_worker_architecture.md) — Worker pool + messages
 - [15_rendering_shaders.md](15_rendering_shaders.md) — GLSL contract
+- [22_pathfinding.md](22_pathfinding.md) — Pathfinding engine + autonomous job system
 
 ## Future
 

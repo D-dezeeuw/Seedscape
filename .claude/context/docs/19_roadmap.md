@@ -124,6 +124,32 @@
 
 ---
 
+## Phase 7 — Pathfinding & Autonomous Jobs
+
+**Goal:** Settlers walk on real paths and do useful work — water crops, harvest crops — autonomously. Pathfinding becomes a reusable engine for any future AI movement.
+
+**Duration:** ~1.5 weeks
+
+### Deliverables
+
+- A*-on-grid pathfinder in a dedicated worker (single worker, not a pool)
+- Walkability mirroring + chunk delta protocol, gridVersion-keyed cache
+- Pathfinding client with promise-based requests
+- Storage crate tile + sparse contents store
+- Villager water reserve + item inventory
+- Job board with single-claim mutex
+- Job emitters: HaulWater, WaterCrop, Harvest
+- Job state machine on Villager (idle → … → complete)
+- Debug viz: selected settler's waypoints + current job in Person window
+
+### Exit Criteria
+
+> A spawned settler walks to a water tile, fills up, walks to a thirsty crop, waters it, then walks to a ripe crop, harvests it, and deposits in the nearest crate — autonomously. Building placement mid-route triggers replan. 50 settlers don't deadlock. Pathfinding stays off the main thread.
+
+See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
+
+---
+
 ## Milestone Summary
 
 | Phase | Duration  | Milestone                              |
@@ -133,6 +159,7 @@
 | 3     | ~2 weeks  | Playable farm loop + save system       |
 | 4     | ~3 weeks  | Full economy + production chains       |
 | 5     | Ongoing   | Biome expansion + multiplayer          |
+| 7     | ~1.5 wks  | Autonomous settlers + pathfinding      |
 
 ---
 
