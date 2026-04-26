@@ -153,6 +153,21 @@ export class InstancedTileRenderer {
     return this.chunks.size * TILES_PER_CHUNK;
   }
 
+  // Release every owned GL resource (program, quad buffer, per-chunk VAOs +
+  // instance buffers). Symmetric with InstancedEntityRenderer.destroy. Safe
+  // to call multiple times — chunks Map is cleared after the first call so
+  // the second iteration is a no-op.
+  destroy(): void {
+    const gl = this.gl;
+    for (const handle of this.chunks.values()) {
+      gl.deleteBuffer(handle.instanceBuffer);
+      gl.deleteVertexArray(handle.vao);
+    }
+    this.chunks.clear();
+    gl.deleteBuffer(this.quadBuffer);
+    gl.deleteProgram(this.program);
+  }
+
   draw(viewProjection: Float32Array, timeSeconds: number): void {
     const gl = this.gl;
     gl.useProgram(this.program);

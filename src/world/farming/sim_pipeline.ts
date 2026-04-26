@@ -29,16 +29,29 @@ export interface ProductionEvent {
   // Tile-local index inside the chunk so the main thread can attribute
   // the output (HUD, animations later).
   tileIndex: number;
+  // Building tile id at sim time. Main thread compares this against the
+  // live chunk before crediting — if the player dismantled or replaced
+  // the building during sim flight the credit is dropped (race-loss
+  // policy consistent with applySimDelta).
+  expectedTileId: number;
   itemId: number;
   quantity: number;
 }
 
+// Per-tile delta. `prev*` arrays carry the values the sim observed when
+// it computed the change — applySimDelta uses them as a guard so that
+// player actions that landed during the worker's in-flight window
+// (which mutated chunk.data while the sim was looking at a snapshot)
+// don't get silently overwritten by the sim's stale update.
 export interface SimDelta {
   count: number;
   indices: Uint16Array;
   tileId: Uint16Array;
   state: Uint8Array;
   metadata: Uint8Array;
+  prevTileId: Uint16Array;
+  prevState: Uint8Array;
+  prevMetadata: Uint8Array;
   // Production outputs from buildings whose cycle completed this tick. Empty
   // for chunks with no buildings, which is the common case.
   productionEvents: ProductionEvent[];
@@ -49,6 +62,9 @@ export interface SimScratch {
   tileId: Uint16Array;
   state: Uint8Array;
   metadata: Uint8Array;
+  prevTileId: Uint16Array;
+  prevState: Uint8Array;
+  prevMetadata: Uint8Array;
 }
 
 export function allocSimScratch(): SimScratch {
@@ -57,6 +73,9 @@ export function allocSimScratch(): SimScratch {
     tileId: new Uint16Array(TILES_PER_CHUNK),
     state: new Uint8Array(TILES_PER_CHUNK),
     metadata: new Uint8Array(TILES_PER_CHUNK),
+    prevTileId: new Uint16Array(TILES_PER_CHUNK),
+    prevState: new Uint8Array(TILES_PER_CHUNK),
+    prevMetadata: new Uint8Array(TILES_PER_CHUNK),
   };
 }
 
@@ -102,6 +121,9 @@ export function simulateChunkTick(chunk: ChunkData, tick: number, scratch: SimSc
         scratch.tileId[count] = tileId;
         scratch.state[count] = nextState;
         scratch.metadata[count] = nextMeta;
+        scratch.prevTileId[count] = tileId;
+        scratch.prevState[count] = state;
+        scratch.prevMetadata[count] = meta;
         count++;
       }
       continue;
@@ -129,6 +151,7 @@ export function simulateChunkTick(chunk: ChunkData, tick: number, scratch: SimSc
         // Cycle finished: emit production event and return to idle.
         productionEvents.push({
           tileIndex: i,
+          expectedTileId: tileId,
           itemId: building.outputItem,
           quantity: building.outputQuantity,
         });
@@ -149,6 +172,9 @@ export function simulateChunkTick(chunk: ChunkData, tick: number, scratch: SimSc
         scratch.tileId[count] = tileId;
         scratch.state[count] = nextProgress;
         scratch.metadata[count] = nextMeta;
+        scratch.prevTileId[count] = tileId;
+        scratch.prevState[count] = progress;
+        scratch.prevMetadata[count] = meta;
         count++;
       }
     }
@@ -160,15 +186,31 @@ export function simulateChunkTick(chunk: ChunkData, tick: number, scratch: SimSc
     tileId: scratch.tileId,
     state: scratch.state,
     metadata: scratch.metadata,
+    prevTileId: scratch.prevTileId,
+    prevState: scratch.prevState,
+    prevMetadata: scratch.prevMetadata,
     productionEvents,
   };
 }
 
-export function applySimDelta(chunk: ChunkData, delta: SimDelta): void {
+// Apply a sim delta to the live chunk. Race-aware: each entry's prev*
+// fields record what the sim observed; if any of (tileId, state,
+// metadata) at that index changed during the worker's in-flight window
+// (i.e. the player tilled / planted / watered / harvested / fed /
+// dismantled that tile), the live values won't match prev and we drop
+// the sim's update for that tile. Returns the number of entries
+// actually applied — useful for tests and future telemetry.
+export function applySimDelta(chunk: ChunkData, delta: SimDelta): number {
+  let applied = 0;
   for (let n = 0; n < delta.count; n++) {
     const idx = delta.indices[n] as number;
+    if (chunk.tileId[idx] !== (delta.prevTileId[n] as number)) continue;
+    if (chunk.state[idx] !== (delta.prevState[n] as number)) continue;
+    if (chunk.metadata[idx] !== (delta.prevMetadata[n] as number)) continue;
     chunk.tileId[idx] = delta.tileId[n] as number;
     chunk.state[idx] = delta.state[n] as number;
     chunk.metadata[idx] = delta.metadata[n] as number;
+    applied++;
   }
+  return applied;
 }

@@ -8,8 +8,9 @@ import type { ChunkManager } from "../world/chunk_manager";
 import type { EntityManager } from "./entities/entity_manager";
 import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
 import type { Inventory } from "./inventory";
-import type { NpcOrder, OrderBook } from "./orders";
+import type { OrderBook, OrderBookSnapshot } from "./orders";
 import type { Player, PlayerSnapshot } from "./player";
+import type { PossessionController } from "./possession";
 
 // 1 → 2 (Phase 4): added orders + gameTimeSec.
 // 2 → 3 (Phase 5): added entities (Villager / Pet / Mount).
@@ -17,8 +18,14 @@ import type { Player, PlayerSnapshot } from "./player";
 //   generate against new tile shapes, leaving player-modified chunks
 //   visually disjoint at their borders. Cleanest is to drop legacy
 //   saves so the world re-emerges coherent.
+// 4 → 5 (Phase 6): added possessedEntityId so reloads resume possession.
+// 5 → 6 (Phase 6 cleanup): OrderBook snapshot now carries rngSeed +
+//   rotationOffset so post-load refreshes match the sequence that
+//   would have run without a save/load round-trip.
+// 6 → 7 (Phase 5 cleanup): Mount snapshot persists ridden + riderId so
+//   saving mid-ride doesn't silently dismount the rider on load.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 7;
 
 export interface SavedChunk {
   chunkX: number;
@@ -35,11 +42,14 @@ export interface Snapshot {
   player: PlayerSnapshot;
   inventory: Record<number, number>;
   chunks: SavedChunk[];
-  orders: { orders: NpcOrder[]; nextRefreshSec: number };
+  orders: OrderBookSnapshot;
   // Wall-clock seconds since the world started (game time, not real time).
   // Lets the order book know how to schedule next refresh on load.
   gameTimeSec: number;
   entities: SavedEntity[];
+  // Id of the entity the player was possessing at save time, or null.
+  // Restored after entities are deserialized so the camera can re-attach.
+  possessedEntityId: number | null;
 }
 
 export interface SaveManagerDeps {
@@ -51,6 +61,7 @@ export interface SaveManagerDeps {
   chunkManager: ChunkManager;
   orders: OrderBook;
   entityManager: EntityManager;
+  possession: PossessionController;
   // Function returning the current game-time-seconds when called.
   gameTimeSec: () => number;
 }
@@ -85,6 +96,7 @@ export class SaveManager {
       orders: this.deps.orders.toJSON(),
       gameTimeSec: this.deps.gameTimeSec(),
       entities,
+      possessedEntityId: this.deps.possession.entity?.id ?? null,
     };
   }
 
@@ -124,6 +136,14 @@ export class SaveManager {
     }
     for (const saved of snapshot.entities) {
       this.deps.entityManager.add(deserializeEntity(saved));
+    }
+    // Resume possession if we had any. Done after entities are loaded so
+    // the lookup hits the deserialized instance, and after camera coords
+    // are restored so the saved camera position is the starting point
+    // for the follow lerp (no jarring snap on load).
+    if (snapshot.possessedEntityId !== null) {
+      const ent = this.deps.entityManager.getById(snapshot.possessedEntityId);
+      if (ent) this.deps.possession.enter(ent);
     }
   }
 }

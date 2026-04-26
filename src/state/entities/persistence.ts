@@ -28,7 +28,16 @@ export interface SavedEntity {
     ownerId: number | null;
     followRadius: number;
   };
-  mount?: { species: string; penWorldTileX: number; penWorldTileY: number };
+  // Mount carries runtime ride state too — possessing a mount is the
+  // intended use case (Phase 6 plumbing, full feature later) and saving
+  // mid-ride must not silently dismount the rider.
+  mount?: {
+    species: string;
+    penWorldTileX: number;
+    penWorldTileY: number;
+    ridden: boolean;
+    riderId: number | null;
+  };
 }
 
 export function serializeEntity(e: Entity): SavedEntity {
@@ -60,6 +69,8 @@ export function serializeEntity(e: Entity): SavedEntity {
       species: e.species,
       penWorldTileX: e.penWorldTileX,
       penWorldTileY: e.penWorldTileY,
+      ridden: e.ridden,
+      riderId: e.riderId,
     };
   }
   return base;
@@ -99,10 +110,13 @@ export function deserializeEntity(saved: SavedEntity): Entity {
     case "mount": {
       const data = saved.mount;
       if (!data) throw new Error(`saved mount ${saved.id} missing mount payload`);
-      return new Mount(saved.id, position, data.species, {
+      const mount = new Mount(saved.id, position, data.species, {
         x: data.penWorldTileX,
         y: data.penWorldTileY,
       });
+      mount.ridden = data.ridden;
+      mount.riderId = data.riderId;
+      return mount;
     }
     case "animal":
       throw new Error(`abstract Animal cannot be deserialized — add a concrete species class`);

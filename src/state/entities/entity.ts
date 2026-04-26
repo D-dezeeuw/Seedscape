@@ -89,6 +89,25 @@ export abstract class Entity {
     this.localY = worldY - this.chunkY * CHUNK_SIZE;
   }
 
+  // World-tile coords of the tile this entity is facing, `distance` tiles
+  // ahead. Default 1 = the immediate neighbor. Subclasses can call with a
+  // larger distance for long-bodied entities (mounts, future creatures)
+  // whose "front" sits more than one tile out.
+  facedTile(distance = 1): { x: number; y: number } {
+    const tx = this.worldTileX();
+    const ty = this.worldTileY();
+    switch (this.facing) {
+      case FACING_NORTH:
+        return { x: tx, y: ty - distance };
+      case FACING_SOUTH:
+        return { x: tx, y: ty + distance };
+      case FACING_EAST:
+        return { x: tx + distance, y: ty };
+      case FACING_WEST:
+        return { x: tx - distance, y: ty };
+    }
+  }
+
   abstract tick(ctx: EntityTickContext): void;
 
   // Default click handler — subclasses override to react. Returns true if

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { Mount, Pet } from "./animal";
-import { FACING_EAST, FACING_NORTH, FACING_SOUTH, FACING_WEST } from "./entity";
+import {
+  FACING_EAST,
+  FACING_NORTH,
+  FACING_SOUTH,
+  FACING_WEST,
+  type Facing,
+} from "./entity";
 import { makeFullNeeds, SHORT_TERM_CAPACITY } from "./living_entity";
 import { Villager } from "./villager";
 
@@ -32,6 +38,140 @@ describe("Entity coordinate math", () => {
     expect(v.chunkY).toBe(1);
     expect(v.localX).toBeCloseTo(31.5, 5);
     expect(v.localY).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("Entity.facedTile", () => {
+  const cases: Array<[Facing, number, number, string]> = [
+    [FACING_NORTH, 4, 4, "north → -y"],
+    [FACING_SOUTH, 4, 6, "south → +y"],
+    [FACING_EAST, 5, 5, "east → +x"],
+    [FACING_WEST, 3, 5, "west → -x"],
+  ];
+
+  for (const [facing, expectedX, expectedY, label] of cases) {
+    test(label, () => {
+      // Stand at world tile (4, 5), sub-tile center (4.5, 5.5).
+      const v = new Villager(
+        1,
+        { chunkX: 0, chunkY: 0, localX: 4.5, localY: 5.5 },
+        "T",
+        { x: 0, y: 0 },
+        facing,
+      );
+      expect(v.facedTile()).toEqual({ x: expectedX, y: expectedY });
+    });
+  }
+
+  test("custom distance offsets further along facing", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 5.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_EAST,
+    );
+    expect(v.facedTile(3)).toEqual({ x: 7, y: 5 });
+  });
+
+  test("works across chunk boundaries (negative coords)", () => {
+    const v = new Villager(
+      1,
+      { chunkX: -1, chunkY: 0, localX: 0.5, localY: 0.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_WEST,
+    );
+    // Standing at world tile (-32, 0); facing west → (-33, 0).
+    expect(v.facedTile()).toEqual({ x: -33, y: 0 });
+  });
+});
+
+describe("LivingEntity.moveToward walkability gate", () => {
+  test("blocked next tile: position stays, facing still updates, returns 0 (treat as arrived)", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_NORTH,
+    );
+    // Target one tile east; isWalkable says no for any tile right of x=4.
+    const isWalkable = (tx: number, _ty: number): boolean => tx <= 4;
+    const remaining = v.moveToward(7.5, 4.5, 4, 0.5, isWalkable);
+    expect(v.worldX()).toBe(4.5); // didn't move
+    expect(v.facing).toBe(FACING_EAST); // facing turned regardless
+    expect(remaining).toBe(0); // signals "arrived" so AI picks a new target
+  });
+
+  test("walkable next tile: moves normally", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    const remaining = v.moveToward(7.5, 4.5, 4, 0.5, () => true);
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+    expect(remaining).toBeGreaterThan(0); // still 1 tile to go
+  });
+
+  test("legacy call without isWalkable preserves prior behavior", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    // No walkability arg → moves through whatever's there (legacy).
+    v.moveToward(10.5, 4.5, 4, 0.5);
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+  });
+});
+
+describe("LivingEntity.moveCardinal", () => {
+  const ALWAYS = () => true;
+  const NEVER = () => false;
+
+  test("zero vector: no movement, no facing change", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_NORTH,
+    );
+    v.moveCardinal(0, 0, 4, 0.1, ALWAYS);
+    expect(v.worldX()).toBe(4.5);
+    expect(v.worldY()).toBe(4.5);
+    expect(v.facing).toBe(FACING_NORTH);
+  });
+
+  test("east step advances +X and faces east", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(1, 0, 4, 0.5, ALWAYS); // 4 * 0.5 = 2 tiles
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+    expect(v.worldY()).toBe(4.5);
+    expect(v.facing).toBe(FACING_EAST);
+  });
+
+  test("south step (+Y per codebase convention) advances +Y", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(0, 1, 4, 0.5, ALWAYS);
+    expect(v.worldY()).toBeCloseTo(6.5, 5);
+    expect(v.facing).toBe(FACING_SOUTH);
+  });
+
+  test("blocked destination: facing still updates, position does not", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(1, 0, 4, 0.5, NEVER);
+    expect(v.worldX()).toBe(4.5);
+    expect(v.facing).toBe(FACING_EAST);
   });
 });
 

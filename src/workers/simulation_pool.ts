@@ -26,6 +26,11 @@ interface PendingTask {
 interface WorkerSlot {
   worker: Worker;
   busy: boolean;
+  // True after the worker has crashed; tryDispatch skips this slot forever
+  // so we don't postMessage to a dead worker. Pool capacity degrades by one
+  // until the page reloads — recovery would mean respawning, which is out
+  // of scope.
+  dead: boolean;
   current: PendingTask | null;
 }
 
@@ -48,15 +53,22 @@ export class SimulationPool {
   constructor(workerCount: number = defaultWorkerCount()) {
     for (let i = 0; i < workerCount; i++) {
       const worker = new SimulationWorker();
-      const slot: WorkerSlot = { worker, busy: false, current: null };
+      const slot: WorkerSlot = { worker, busy: false, dead: false, current: null };
       worker.onmessage = (event: MessageEvent<SimResponse>) => {
         this.handleMessage(slot, event.data);
       };
       worker.onerror = (event: ErrorEvent) => {
+        // Worker crashed. Reject any in-flight task, clear the slot's
+        // accounting, and mark dead so tryDispatch skips it forever. Without
+        // these resets a slot that crashed while idle (busy=false) would
+        // still match tryDispatch's predicate and receive the next task,
+        // which then hangs because the worker is dead.
         if (slot.current) {
           slot.current.reject(new Error(`simulation worker crashed: ${event.message}`));
           slot.current = null;
         }
+        slot.busy = false;
+        slot.dead = true;
       };
       this.slots.push(slot);
     }
@@ -91,9 +103,18 @@ export class SimulationPool {
   }
 
   terminate(): void {
-    for (const slot of this.slots) slot.worker.terminate();
+    const reason = new Error("simulation pool terminated");
+    for (const slot of this.slots) {
+      slot.worker.terminate();
+      // Reject the in-flight task too — terminate must not leave a Promise
+      // hanging forever. Queued tasks are rejected below.
+      if (slot.current) {
+        slot.current.reject(reason);
+        slot.current = null;
+      }
+    }
     this.slots.length = 0;
-    for (const task of this.queue) task.reject(new Error("simulation pool terminated"));
+    for (const task of this.queue) task.reject(reason);
     this.queue.length = 0;
   }
 
@@ -115,6 +136,9 @@ export class SimulationPool {
           tileId: new Uint16Array(msg.deltaTileId),
           state: new Uint8Array(msg.deltaState),
           metadata: new Uint8Array(msg.deltaMetadata),
+          prevTileId: new Uint16Array(msg.prevTileId),
+          prevState: new Uint8Array(msg.prevState),
+          prevMetadata: new Uint8Array(msg.prevMetadata),
           productionEvents: msg.productionEvents,
         },
       });
@@ -132,7 +156,7 @@ export class SimulationPool {
 
   private tryDispatch(): void {
     while (this.queue.length > 0) {
-      const slot = this.slots.find((s) => !s.busy);
+      const slot = this.slots.find((s) => !s.busy && !s.dead);
       if (!slot) return;
       const task = this.queue.shift() as PendingTask;
       slot.busy = true;

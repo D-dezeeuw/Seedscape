@@ -193,7 +193,12 @@ export function createPersonWindow(deps: Deps): PersonWindowApi {
   });
 
   const onKey = (ev: KeyboardEvent): void => {
-    if (ev.key === "Escape" && window_.isOpen()) window_.hide();
+    if (ev.key !== "Escape") return;
+    if (!window_.isOpen()) return;
+    window_.hide();
+    // Mark the event consumed so the global possession-exit ESC handler
+    // doesn't also fire — closing a window wins the priority chain.
+    ev.preventDefault();
   };
   globalThis.window.addEventListener("keydown", onKey);
 

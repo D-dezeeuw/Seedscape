@@ -3,7 +3,8 @@
 // yellow rim when the entity is currently selected in the UI.
 //
 // Per-instance encoding: a_facing's low 2 bits = facing direction
-// (0=S, 1=W, 2=N, 3=E); bit 2 = selection flag.
+// (0=S, 1=W, 2=N, 3=E); bit 2 = selection flag (yellow ring); bit 3 =
+// possessed flag (cyan ring, drawn over selection).
 
 export const ENTITY_VERTEX_SOURCE = /* glsl */ `#version 300 es
 precision highp float;
@@ -20,6 +21,7 @@ out vec2  v_uv;
 out vec3  v_color;
 flat out int v_facing;
 flat out int v_selected;
+flat out int v_possessed;
 
 void main() {
   vec2 worldPos = a_worldPos + a_quadPos * u_tileSize * 0.85;
@@ -28,8 +30,9 @@ void main() {
   v_color = a_color;
 
   int packed = int(a_facing);
-  v_facing   = packed & 3;
-  v_selected = (packed >> 2) & 1;
+  v_facing    = packed & 3;
+  v_selected  = (packed >> 2) & 1;
+  v_possessed = (packed >> 3) & 1;
 }
 `;
 
@@ -40,6 +43,7 @@ in  vec2 v_uv;
 in  vec3 v_color;
 flat in int v_facing;
 flat in int v_selected;
+flat in int v_possessed;
 
 out vec4 fragColor;
 
@@ -66,6 +70,15 @@ void main() {
   if (v_selected == 1) {
     float ring = smoothstep(0.42, 0.48, r) * (1.0 - smoothstep(0.48, 0.50, r));
     body = mix(body, vec3(1.0, 0.92, 0.45), ring);
+  }
+
+  // Possessed ring: cyan, slightly inside the selection ring so both can
+  // coexist when the player has the possessed entity also selected in
+  // a UI panel. Possession is "I am this", selection is "I'm reading
+  // about this" — distinct concepts, distinct visuals.
+  if (v_possessed == 1) {
+    float ring = smoothstep(0.36, 0.42, r) * (1.0 - smoothstep(0.42, 0.46, r));
+    body = mix(body, vec3(0.45, 0.85, 1.0), ring);
   }
 
   fragColor = vec4(body, 1.0);

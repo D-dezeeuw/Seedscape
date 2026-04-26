@@ -31,6 +31,28 @@ describe("ChunkCache", () => {
     expect(evicted).toEqual([["a", 1]]);
   });
 
+  test("peek() returns the value without promoting (eviction order unchanged)", () => {
+    const evicted: string[] = [];
+    const cache = new ChunkCache<number>({
+      capacity: 2,
+      onEvict: (k) => evicted.push(k),
+    });
+    cache.set("a", 1);
+    cache.set("b", 2);
+    expect(cache.peek("a")).toBe(1);
+    // peek did NOT promote a — so adding c must evict a (oldest), not b.
+    cache.set("c", 3);
+    expect(cache.has("a")).toBe(false);
+    expect(cache.has("b")).toBe(true);
+    expect(evicted).toEqual(["a"]);
+  });
+
+  test("peek() returns undefined for missing keys", () => {
+    const cache = new ChunkCache<number>({ capacity: 2 });
+    cache.set("a", 1);
+    expect(cache.peek("missing")).toBeUndefined();
+  });
+
   test("get() promotes to most-recently-used", () => {
     const evicted: string[] = [];
     const cache = new ChunkCache<number>({

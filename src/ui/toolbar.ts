@@ -87,10 +87,21 @@ export function createToolbar(deps: ToolbarDeps): () => void {
     cleanups.push(off);
   }
 
-  // ESC closes whichever window is open.
+  // ESC closes whichever window is open. preventDefault marks the event
+  // as consumed so downstream ESC handlers (e.g. exit-possession) know
+  // to step aside — the close-a-window action wins the priority chain.
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== "Escape") return;
+    let anyOpen = false;
+    for (const entry of deps.windows) {
+      if (entry.window.isOpen()) {
+        anyOpen = true;
+        break;
+      }
+    }
+    if (!anyOpen) return;
     closeAllExcept(null);
+    e.preventDefault();
   };
   window.addEventListener("keydown", onKey);
   cleanups.push(() => window.removeEventListener("keydown", onKey));

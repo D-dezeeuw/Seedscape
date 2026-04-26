@@ -35,6 +35,12 @@ export type SimResponse =
       deltaTileId: ArrayBuffer;
       deltaState: ArrayBuffer;
       deltaMetadata: ArrayBuffer;
+      // Pre-tick values per entry. Main thread uses these as a guard so
+      // player actions during in-flight time aren't overwritten — see
+      // applySimDelta in sim_pipeline.ts.
+      prevTileId: ArrayBuffer;
+      prevState: ArrayBuffer;
+      prevMetadata: ArrayBuffer;
       // Production events ride along via structured clone — small list, not
       // worth shaping into transferable buffers for Phase 4 throughput.
       productionEvents: ProductionEvent[];
@@ -59,11 +65,17 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
     const deltaTileId = new Uint16Array(delta.count);
     const deltaState = new Uint8Array(delta.count);
     const deltaMetadata = new Uint8Array(delta.count);
+    const prevTileId = new Uint16Array(delta.count);
+    const prevState = new Uint8Array(delta.count);
+    const prevMetadata = new Uint8Array(delta.count);
     for (let n = 0; n < delta.count; n++) {
       indices[n] = delta.indices[n] as number;
       deltaTileId[n] = delta.tileId[n] as number;
       deltaState[n] = delta.state[n] as number;
       deltaMetadata[n] = delta.metadata[n] as number;
+      prevTileId[n] = delta.prevTileId[n] as number;
+      prevState[n] = delta.prevState[n] as number;
+      prevMetadata[n] = delta.prevMetadata[n] as number;
     }
 
     const response: SimResponse = {
@@ -76,6 +88,9 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
       deltaTileId: deltaTileId.buffer as ArrayBuffer,
       deltaState: deltaState.buffer as ArrayBuffer,
       deltaMetadata: deltaMetadata.buffer as ArrayBuffer,
+      prevTileId: prevTileId.buffer as ArrayBuffer,
+      prevState: prevState.buffer as ArrayBuffer,
+      prevMetadata: prevMetadata.buffer as ArrayBuffer,
       productionEvents: delta.productionEvents,
     };
 
@@ -84,6 +99,9 @@ self.onmessage = (event: MessageEvent<SimRequest>): void => {
       response.deltaTileId,
       response.deltaState,
       response.deltaMetadata,
+      response.prevTileId,
+      response.prevState,
+      response.prevMetadata,
     ]);
   } catch (err) {
     const error: SimResponse = {

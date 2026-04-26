@@ -1,23 +1,28 @@
 import { createGLContext, resizeCanvasToDisplaySize, WebGL2UnsupportedError } from "./core/canvas";
 import { createFpsOverlay } from "./core/fps";
+import { attachActionKey } from "./input/action_key";
 import { Camera } from "./input/camera";
 import { attachCameraControls } from "./input/camera_controls";
+import { attachInputRouter, InputRouter } from "./input/input_router";
 import { attachTileInteraction } from "./input/tile_interaction";
 import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
+import { LivingEntity } from "./state/entities/living_entity";
 import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
+import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
+import { FacedTileReticle } from "./ui/faced_tile_reticle";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
@@ -50,6 +55,14 @@ const STREAM_MARGIN_CHUNKS = 2;
 const SIM_TICK_MS = 1000;
 const AUTOSAVE_MS = 30_000;
 const STARTING_WHEAT_SEEDS = 100;
+// Player avatar walk speed in tiles/sec when possessed. Tunable; matches
+// Phase 5's villager wander speed so the world's motion feels coherent
+// whether or not you're driving.
+const AVATAR_WALK_TILES_PER_SEC = 4;
+// God-mode keyboard pan speed in tiles/sec. A bit faster than walking so
+// surveying the map doesn't feel sluggish, slower than mouse drag so it
+// stays controllable.
+const GOD_PAN_TILES_PER_SEC = 10;
 // Production XP per output unit emitted by a building cycle. Keeps level
 // progression tied to actually running the chain, not just selling.
 const PRODUCTION_XP_PER_OUTPUT = 2;
@@ -121,6 +134,8 @@ async function bootstrap(): Promise<void> {
   // `tick` so save/load can preserve it across sessions.
   let gameTimeSec = 0;
 
+  const possession = new PossessionController();
+
   const saveManager = new SaveManager({
     io: ioClient,
     worldSeed: WORLD_SEED,
@@ -130,6 +145,7 @@ async function bootstrap(): Promise<void> {
     chunkManager,
     orders,
     entityManager,
+    possession,
     gameTimeSec: () => gameTimeSec,
   });
 
@@ -142,15 +158,48 @@ async function bootstrap(): Promise<void> {
   // on a fresh world; on load the saved nextRefreshSec drives the schedule).
   orders.tick(gameTimeSec);
 
-  // Fresh launch (no save) → drop the lonely settler near origin once
-  // chunk(0,0) is generated. Loaded saves restore them via applySnapshot.
+  // Fresh launch (no save) → drop the lonely settler near origin. We
+  // prime chunk(0,0) here because spawn polls peekChunk() until the
+  // chunk arrives, and chunks only load through chunkManager.update —
+  // which the rAF loop drives, but the rAF loop hasn't started yet.
+  // Awaiting the spawn here costs ~50-200ms of boot time but eliminates
+  // the visible "settlers pop in a few frames late" flicker on first
+  // launch (saved games skip this path entirely via applySnapshot).
   if (!existingSave) {
-    void spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
+    chunkManager.update({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
+    await spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
   }
 
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
   const toaster = createToaster(document.body);
+
+  const inputRouter = new InputRouter();
+  const detachInputRouter = attachInputRouter(inputRouter, window);
+  const detachActionKey = attachActionKey({
+    possession,
+    tool,
+    inventory,
+    player,
+    chunkManager,
+  });
+
+  // Camera follow + key reset on possession transitions. Subscribing
+  // here instead of inline at enter() means save-load triggered enters
+  // get the same wiring for free.
+  const detachPossession = possession.subscribe((snap) => {
+    if (snap.mode === "possess" && snap.entity) {
+      const ent = snap.entity;
+      const center = entityCenter(ent);
+      camera.panTo(center.x, center.y);
+      camera.followEntity(() => entityCenter(ent));
+    } else {
+      camera.unfollow();
+      // Drop any keys the player was holding when possession ended —
+      // otherwise W still drives the camera in god mode.
+      inputRouter.clear();
+    }
+  });
 
   // Currently-selected entity id — drives the in-world selection ring.
   // Null when nothing is selected.
@@ -159,8 +208,9 @@ async function bootstrap(): Promise<void> {
   const personWindow = createPersonWindow({
     parent: document.body,
     onPossess: (entity) => {
+      possession.enter(entity);
       const label = entity instanceof Villager ? entity.name : entity.type;
-      toaster.show(`Possessing ${label} — coming next phase`);
+      toaster.show(`Possessing ${label} — press ESC to release`);
     },
     onShow: (entity) => {
       selectedEntityId = entity.id;
@@ -180,10 +230,12 @@ async function bootstrap(): Promise<void> {
     tileWorldSize: TILE_WORLD_SIZE,
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
+    isPossessing: () => possession.isPossessing(),
   });
 
   const detachHud = createHud(document.body, player);
   const entityLabels = new EntityLabels(document.body);
+  const facedReticle = new FacedTileReticle(document.body);
   const detachInfo = createTileInfo({
     parent: document.body,
     canvas,
@@ -225,6 +277,36 @@ async function bootstrap(): Promise<void> {
     parent: document.body,
     tool,
     windows: toolbarWindows,
+  });
+
+  // ESC priority — registered AFTER all UI keydown listeners so it runs
+  // last in the DOM dispatch order. Window-closing handlers (toolbar,
+  // person_window) call preventDefault when they actually close
+  // something; this listener checks defaultPrevented and only exits
+  // possession when nothing else consumed the event. Order matters:
+  // registering this earlier breaks the priority chain because
+  // defaultPrevented is read before later handlers had a chance to set
+  // it. Verified by escape_priority.test.ts.
+  const onEscKey = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape") return;
+    if (e.defaultPrevented) return;
+    if (possession.isPossessing()) possession.exit();
+  };
+  window.addEventListener("keydown", onEscKey);
+
+  // Exit-possession FAB. Mirrors ESC for touch users + makes the
+  // current mode visually obvious. Hidden in god mode; shown while
+  // possessing.
+  const exitFab = document.createElement("button");
+  exitFab.className = "ss-btn ss-exit-possess-fab";
+  exitFab.textContent = "Exit possession";
+  exitFab.style.display = "none";
+  exitFab.addEventListener("click", () => {
+    if (possession.isPossessing()) possession.exit();
+  });
+  document.body.appendChild(exitFab);
+  const detachExitFabSub = possession.subscribe((snap) => {
+    exitFab.style.display = snap.mode === "possess" ? "" : "none";
   });
 
   // Dev-only debug window has its own floating trigger button in the
@@ -284,12 +366,22 @@ async function bootstrap(): Promise<void> {
         .then((result) => {
           inFlightKeys.delete(key);
           if (result.delta.count > 0) {
-            applySimDelta(record.data, result.delta);
-            record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+            const applied = applySimDelta(record.data, result.delta);
+            // Only mark dirty if at least one entry actually applied —
+            // a fully-skipped delta (everything raced) shouldn't churn
+            // the GPU upload or autosave.
+            if (applied > 0) {
+              record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+            }
           }
-          // Apply production events to the player. Indices in the event are
-          // tile-local; the building tile id is at chunk.data.tileId[i].
+          // Apply production events to the player — but only if the tile
+          // is STILL the building the sim expected. If the player
+          // dismantled or replaced the building during sim flight, the
+          // cycle's output is forfeit (race-loss policy consistent with
+          // applySimDelta).
           for (const ev of result.delta.productionEvents) {
+            const liveTileId = record.data.tileId[ev.tileIndex] ?? 0;
+            if (liveTileId !== ev.expectedTileId) continue;
             inventory.add(ev.itemId as never, ev.quantity);
             player.addXp(ev.quantity * PRODUCTION_XP_PER_OUTPUT);
           }
@@ -337,7 +429,35 @@ async function bootstrap(): Promise<void> {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
+
+    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
+    lastFrameMs = timestampMs;
+
+    // Movement input — routes to the avatar in possess mode, to the
+    // camera in god mode. Last-pressed-axis-wins is enforced upstream by
+    // InputRouter so this is always strictly 4-cardinal.
+    const move = inputRouter.vector();
+    const possessed = possession.entity;
+    if (possession.isPossessing() && possessed instanceof LivingEntity) {
+      possessed.moveCardinal(
+        move.dx,
+        move.dy,
+        AVATAR_WALK_TILES_PER_SEC,
+        dt,
+        isWalkableTile,
+      );
+    } else if (move.dx !== 0 || move.dy !== 0) {
+      // God-mode pan. Cancel any active panTo so keyboard input feels
+      // immediate and treat the input as a "drag" so a follow we set up
+      // earlier (e.g. before a save/load) pauses correctly.
+      camera.cancelAnimation();
+      camera.x += move.dx * GOD_PAN_TILES_PER_SEC * dt;
+      camera.y += move.dy * GOD_PAN_TILES_PER_SEC * dt;
+      camera.notifyDragInput(timestampMs);
+    }
+
     camera.tickAnimation(timestampMs);
+    camera.tickFollow(timestampMs);
     camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
@@ -353,15 +473,17 @@ async function bootstrap(): Promise<void> {
 
     // Entity tick — main thread, every frame, with elapsed dt. Cheap at
     // MVP scale (≤16 entities). When count grows, batch into a fixed-step
-    // accumulator for determinism.
-    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
-    lastFrameMs = timestampMs;
-    entityManager.tick({
-      time: gameTimeSec,
-      dt,
-      worldSeed: WORLD_SEED,
-      isWalkable: isWalkableTile,
-    });
+    // accumulator for determinism. Skip the possessed avatar so its
+    // wander AI doesn't fight player input.
+    entityManager.tick(
+      {
+        time: gameTimeSec,
+        dt,
+        worldSeed: WORLD_SEED,
+        isWalkable: isWalkableTile,
+      },
+      possessed?.id ?? null,
+    );
 
     overlay.setChunkCount(renderer.chunkCount);
     overlay.setTileCount(renderer.tileCount);
@@ -369,8 +491,20 @@ async function bootstrap(): Promise<void> {
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
-    entityRenderer.draw(entityManager.iterate(), camera.viewProjection, selectedEntityId);
+    entityRenderer.draw(
+      entityManager.iterate(),
+      camera.viewProjection,
+      selectedEntityId,
+      possession.entity?.id ?? null,
+    );
     entityLabels.update(entityManager.iterate(), camera, canvas.clientWidth, canvas.clientHeight);
+    facedReticle.update(
+      possession,
+      camera,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      TILE_WORLD_SIZE,
+    );
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -382,7 +516,13 @@ async function bootstrap(): Promise<void> {
     () => {
       window.clearInterval(simInterval);
       window.clearInterval(saveInterval);
+      window.removeEventListener("keydown", onEscKey);
       detachControls();
+      detachInputRouter();
+      detachActionKey();
+      detachPossession();
+      detachExitFabSub();
+      exitFab.remove();
       detachInteraction();
       detachHud();
       detachInfo();
@@ -398,7 +538,9 @@ async function bootstrap(): Promise<void> {
       detachLevelUp();
       toaster.destroy();
       entityLabels.destroy();
+      facedReticle.destroy();
       entityRenderer.destroy();
+      renderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();
       ioClient.terminate();

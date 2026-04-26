@@ -7,6 +7,7 @@
 // Today's only behavior: a moveToward helper that updates position and
 // facing. Subclasses (Villager etc.) compose this into their tick logic.
 
+import type { Tool } from "../../input/tool";
 import {
   Entity,
   type EntityPosition,
@@ -16,6 +17,20 @@ import {
   FACING_WEST,
   type Facing,
 } from "./entity";
+
+// Action set a possessed entity can run via the action key. The Villager
+// default is the full toolset minus "none" (which is just pan / no-op). Other
+// living types ship empty until their phase wires them up — possession is
+// human-only in MVP per docs/21_vision_and_story.md.
+export const VILLAGER_AVAILABLE_ACTIONS: ReadonlyArray<Tool> = [
+  "till",
+  "plant",
+  "water",
+  "harvest",
+  "build",
+  "feed",
+  "dismantle",
+];
 
 // Six needs per docs/18 — each clamped 0..255. Initialized full so a
 // freshly-spawned entity isn't immediately critical.
@@ -62,6 +77,13 @@ export abstract class LivingEntity extends Entity {
   longTermMemory: LongTermEvent[];
   // Packed personality bits. Layout deferred — reserved as Uint8 for now.
   traits: number;
+  // True if this entity participates in the soft-collide separation pass.
+  // Buildings, parked mounts, etc. set false to act as fixed obstacles.
+  // Default true keeps Phase 5 behavior unchanged.
+  softCollide: boolean;
+  // Tools this entity can execute when possessed. Empty = read-only (e.g.
+  // a non-possessable creature, or an early animal class).
+  availableActions: ReadonlyArray<Tool>;
 
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
@@ -72,13 +94,52 @@ export abstract class LivingEntity extends Entity {
     this.shortTermHead = 0;
     this.longTermMemory = [];
     this.traits = 0;
+    this.softCollide = true;
+    this.availableActions = [];
+  }
+
+  // 4-cardinal step driven by an input vector (typically from
+  // InputRouter while possessed). Honors walkability so the player can't
+  // walk into water/buildings; updates facing per the input axis. Vector
+  // is treated as (-1|0|1) per axis — diagonals collapse to the dominant
+  // axis upstream, never here.
+  moveCardinal(
+    dx: number,
+    dy: number,
+    speed: number,
+    dt: number,
+    isWalkable: (worldTileX: number, worldTileY: number) => boolean,
+  ): void {
+    if (dx === 0 && dy === 0) return;
+    // Update facing first so the avatar visibly turns even when the
+    // destination tile is blocked.
+    if (dx !== 0) this.facing = dx > 0 ? FACING_EAST : FACING_WEST;
+    else this.facing = dy > 0 ? FACING_SOUTH : FACING_NORTH;
+    const step = speed * dt;
+    const nx = this.worldX() + dx * step;
+    const ny = this.worldY() + dy * step;
+    if (!isWalkable(Math.floor(nx), Math.floor(ny))) return;
+    this.setWorldPosition(nx, ny);
   }
 
   // Walks the entity from its current position toward (targetWorldX,
   // targetWorldY) at `speed` tiles/sec, advancing by `dt` seconds. Updates
   // facing to match the dominant axis of motion. Returns the remaining
   // distance after the step (0 means arrived this frame).
-  moveToward(targetWorldX: number, targetWorldY: number, speed: number, dt: number): number {
+  //
+  // When `isWalkable` is supplied, blocks movement onto an unwalkable tile
+  // and returns 0 so the AI sees this as "arrived" and idles + picks a
+  // new target on the next tick — without this guard the wander path
+  // ignores terrain and clips through water/buildings between the entity
+  // and a target on the other side. Callers that don't want walkability
+  // checks (e.g. tests) can omit the parameter for the legacy behavior.
+  moveToward(
+    targetWorldX: number,
+    targetWorldY: number,
+    speed: number,
+    dt: number,
+    isWalkable?: (worldTileX: number, worldTileY: number) => boolean,
+  ): number {
     const wx = this.worldX();
     const wy = this.worldY();
     const dx = targetWorldX - wx;
@@ -86,8 +147,13 @@ export abstract class LivingEntity extends Entity {
     const dist = Math.hypot(dx, dy);
     if (dist < 1e-4) return 0;
     const step = Math.min(dist, speed * dt);
-    this.setWorldPosition(wx + (dx / dist) * step, wy + (dy / dist) * step);
+    const nx = wx + (dx / dist) * step;
+    const ny = wy + (dy / dist) * step;
+    // Update facing first so a blocked entity still visibly turns toward
+    // its target — same convention as moveCardinal.
     this.facing = pickFacing(dx, dy);
+    if (isWalkable && !isWalkable(Math.floor(nx), Math.floor(ny))) return 0;
+    this.setWorldPosition(nx, ny);
     return Math.max(0, dist - step);
   }
 }

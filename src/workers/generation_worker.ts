@@ -25,9 +25,12 @@ export type GenerationResponse =
   | { type: "error"; taskId: number; error: string };
 
 let noise: WorldNoise | null = null;
-// Pre-allocated buffer reused across tasks. Generation writes into these
-// arrays, then we hand the underlying buffers to postMessage as Transferables
-// and immediately allocate fresh ones for the next task. No GC churn.
+// Scratch ChunkData. Generation writes into it in place; we transfer the
+// underlying buffers to the main thread (zero-copy) and allocate a fresh
+// ChunkData for the next task. One small allocation per generated chunk —
+// not per-frame, not on the render path, so the cost is amortized across
+// streaming. A ring of pre-allocated ChunkData would eliminate it; not
+// doing that yet because chunk gen isn't the hot path.
 let scratch: ChunkData = allocChunkData();
 
 self.onmessage = (event: MessageEvent<GenerationRequest>): void => {

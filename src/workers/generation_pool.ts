@@ -46,12 +46,19 @@ export class GenerationPool {
         this.handleMessage(slot, event.data);
       };
       worker.onerror = (event: ErrorEvent) => {
-        // Surface worker crashes to any in-flight task; further work won't
-        // dispatch to a dead worker because busy stays true.
+        // Worker crashed. Reject any in-flight task, clear the slot's
+        // accounting, and mark it not-ready so tryDispatch never hands a
+        // job to a dead worker. The pool degrades by one worker for the
+        // remainder of the session — recovering would mean respawning,
+        // which is out of scope for now. Without these resets the slot
+        // stayed busy=true forever, silently shrinking pool capacity on
+        // every crash.
         if (slot.current) {
           slot.current.reject(new Error(`generation worker crashed: ${event.message}`));
           slot.current = null;
         }
+        slot.busy = false;
+        slot.ready = false;
       };
       const initMsg: GenerationRequest = { type: "init", worldSeed };
       worker.postMessage(initMsg);
@@ -86,9 +93,18 @@ export class GenerationPool {
   }
 
   terminate(): void {
-    for (const slot of this.slots) slot.worker.terminate();
+    const reason = new Error("generation pool terminated");
+    for (const slot of this.slots) {
+      slot.worker.terminate();
+      // Reject the in-flight task too — terminate must not leave a Promise
+      // hanging forever. Queued tasks are rejected below.
+      if (slot.current) {
+        slot.current.reject(reason);
+        slot.current = null;
+      }
+    }
     this.slots.length = 0;
-    for (const task of this.queue) task.reject(new Error("generation pool terminated"));
+    for (const task of this.queue) task.reject(reason);
     this.queue.length = 0;
   }
 

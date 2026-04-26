@@ -41,6 +41,14 @@ export class ChunkCache<V> {
     return value;
   }
 
+  // Look up a value without touching LRU order. Used on hot paths where the
+  // caller just wants the data (mark dirty, sim-loop scan, click action) and
+  // promoting recency on every read would be both wasteful and semantically
+  // wrong — those reads aren't "user activity" against the chunk.
+  peek(key: string): V | undefined {
+    return this.map.get(key);
+  }
+
   // Insert or replace. Promotes to MRU and evicts oldest until size ≤ capacity.
   // Caller-provided `protectedKeys` are never evicted on this insert; they
   // represent chunks the camera currently needs.

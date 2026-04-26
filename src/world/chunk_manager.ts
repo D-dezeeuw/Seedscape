@@ -20,6 +20,7 @@ import {
   type ChunkData,
   type ChunkRecord,
   makeChunkRecord,
+  TILES_PER_CHUNK,
 } from "./chunk";
 import { ChunkCache } from "./chunk_cache";
 import { type ChunkRect, chunkKey, chunkOriginWorldTile } from "./coords";
@@ -42,6 +43,12 @@ export class ChunkManager {
   private readonly cache: ChunkCache<ChunkRecord>;
   private readonly inFlight = new Set<string>();
   private currentKeepSet = new Set<string>();
+  // Single Float32Array reused for every uploadToGpu call. buildInstanceBuffer
+  // writes into it in place; the renderer copies it into the GPU buffer
+  // synchronously inside addChunk, so reusing across uploads is safe.
+  // Eliminates ~4 KB allocation per chunk upload (5–10 chunks/frame on rapid
+  // pans → 20–40 KB/frame of garbage if we allocated fresh each time).
+  private readonly instanceScratch: Float32Array = new Float32Array(TILES_PER_CHUNK * 4);
 
   constructor(opts: ChunkManagerOptions) {
     this.pool = opts.pool;
@@ -64,13 +71,7 @@ export class ChunkManager {
   // record without promoting LRU; callers that mutate must also call
   // markDirty() so the renderer knows to rebuild.
   peekChunk(chunkX: number, chunkY: number): ChunkRecord | null {
-    const key = chunkKey(chunkX, chunkY);
-    // Map iteration is the only ordered access in ChunkCache; this read is
-    // unordered (peek) so we don't promote, which would clobber LRU semantics.
-    for (const [k, v] of this.cache.entries()) {
-      if (k === key) return v;
-    }
-    return null;
+    return this.cache.peek(chunkKey(chunkX, chunkY)) ?? null;
   }
 
   // Mark dirty for both render (next update will reupload) and simulation
@@ -151,8 +152,8 @@ export class ChunkManager {
 
   private uploadToGpu(key: string, data: ChunkData, chunkX: number, chunkY: number): void {
     const [worldX, worldY] = chunkOriginWorldTile(chunkX, chunkY);
-    const buf = buildInstanceBuffer(data, worldX, worldY);
-    this.renderer.addChunk(key, buf);
+    buildInstanceBuffer(data, worldX, worldY, this.instanceScratch);
+    this.renderer.addChunk(key, this.instanceScratch);
   }
 
   private requestGeneration(key: string, chunkX: number, chunkY: number): void {

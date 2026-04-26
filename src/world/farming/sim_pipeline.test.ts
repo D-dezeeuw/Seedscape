@@ -156,4 +156,115 @@ describe("simulateChunkTick", () => {
       expect(delta.productionEvents.length).toBe(0);
     }
   });
+
+  test("production event carries expectedTileId for race-aware credit", () => {
+    const c = allocChunkData();
+    placeMill(c, 1, 1);
+    enqueueJob(c, 1, 1);
+    const scratch = allocSimScratch();
+    let event: ReturnType<typeof simulateChunkTick>["productionEvents"][number] | null = null;
+    for (let tick = 1; tick <= MILL.cycleTime + 2; tick++) {
+      const delta = simulateChunkTick(c, tick, scratch);
+      applySimDelta(c, delta);
+      if (delta.productionEvents.length > 0) {
+        event = delta.productionEvents[0] ?? null;
+        break;
+      }
+    }
+    expect(event).not.toBeNull();
+    expect(event?.expectedTileId).toBe(MILL.id);
+  });
+});
+
+describe("applySimDelta race-aware guards", () => {
+  test("drops entry when prev tileId mismatches (player harvested mid-flight)", () => {
+    const c = allocChunkData();
+    plant(c, 0, 0);
+    const scratch = allocSimScratch();
+    // Sim sees the wheat at stage 0, computes growth to stage 1.
+    const delta = simulateChunkTick(c, 1, scratch);
+    expect(delta.count).toBe(1);
+
+    // Player "harvests" mid-flight: the wheat becomes farmland at the
+    // exact tile the delta wants to update.
+    const idx = tileIndex(0, 0);
+    c.tileId[idx] = TILE_FARMLAND_TILLED;
+    c.state[idx] = 0;
+    c.metadata[idx] = 0;
+
+    const applied = applySimDelta(c, delta);
+    expect(applied).toBe(0);
+    // Player's harvest stuck — no crop revived from sim's stale view.
+    expect(c.tileId[idx]).toBe(TILE_FARMLAND_TILLED);
+    expect(c.state[idx]).toBe(0);
+  });
+
+  test("drops entry when prev metadata mismatches (player watered mid-flight)", () => {
+    const c = allocChunkData();
+    plant(c, 2, 2);
+    // Drain to water=1 so sim's decay is a single-step change to water=0.
+    c.metadata[tileIndex(2, 2)] = setWaterLevel(0, 1);
+    const scratch = allocSimScratch();
+    // Run to a decay-interval tick so the sim emits a metadata change.
+    const delta = simulateChunkTick(c, WATER_DECAY_INTERVAL, scratch);
+    expect(delta.count).toBeGreaterThan(0);
+
+    // Player "waters" mid-flight: metadata jumps to water=3.
+    const idx = tileIndex(2, 2);
+    c.metadata[idx] = setWaterLevel(c.metadata[idx] as number, 3);
+
+    applySimDelta(c, delta);
+    // Player's watering survived — sim's decay didn't overwrite.
+    const water = ((c.metadata[idx] as number) >> 3) & 0b11;
+    expect(water).toBe(3);
+  });
+
+  test("drops entry when prev state mismatches (player replanted mid-flight)", () => {
+    const c = allocChunkData();
+    plant(c, 3, 3);
+    // Manually advance state to mid-growth so the test has a non-zero prev.
+    c.state[tileIndex(3, 3)] = 3;
+    const scratch = allocSimScratch();
+    const delta = simulateChunkTick(c, 1, scratch);
+    expect(delta.count).toBe(1);
+
+    // Player "harvests + replants" mid-flight: state resets to 0.
+    c.state[tileIndex(3, 3)] = 0;
+
+    const applied = applySimDelta(c, delta);
+    expect(applied).toBe(0);
+    expect(c.state[tileIndex(3, 3)]).toBe(0);
+  });
+
+  test("applies normally when nothing raced", () => {
+    const c = allocChunkData();
+    plant(c, 4, 4);
+    const scratch = allocSimScratch();
+    const delta = simulateChunkTick(c, 1, scratch);
+    expect(delta.count).toBe(1);
+    const applied = applySimDelta(c, delta);
+    expect(applied).toBe(1);
+    // Wheat advanced to stage 1.
+    expect(c.state[tileIndex(4, 4)]).toBe(1);
+  });
+
+  test("partial apply: races on one tile, succeeds on another in the same delta", () => {
+    const c = allocChunkData();
+    plant(c, 0, 0);
+    plant(c, 1, 1);
+    const scratch = allocSimScratch();
+    const delta = simulateChunkTick(c, 1, scratch);
+    expect(delta.count).toBe(2);
+
+    // Race only the (0,0) tile.
+    c.tileId[tileIndex(0, 0)] = TILE_FARMLAND_TILLED;
+    c.state[tileIndex(0, 0)] = 0;
+
+    const applied = applySimDelta(c, delta);
+    expect(applied).toBe(1);
+    // Raced tile kept the player's harvest.
+    expect(c.tileId[tileIndex(0, 0)]).toBe(TILE_FARMLAND_TILLED);
+    // Non-raced tile got its growth update.
+    expect(c.state[tileIndex(1, 1)]).toBe(1);
+  });
 });
