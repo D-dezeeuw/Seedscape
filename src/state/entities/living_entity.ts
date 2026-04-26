@@ -81,6 +81,15 @@ export abstract class LivingEntity extends Entity {
   // Buildings, parked mounts, etc. set false to act as fixed obstacles.
   // Default true keeps Phase 5 behavior unchanged.
   softCollide: boolean;
+  // Game time at which the entity began being unable to advance. Cleared
+  // (set to -Infinity) every time the AI confirms forward progress —
+  // walking arrives at a waypoint, possession step succeeds, etc.
+  // Consumed by entity_manager.resolveSeparation to decay the entity's
+  // collision radius once they've been stuck long enough that a knot of
+  // settlers might otherwise deadlock. -Infinity is a sentinel for "not
+  // currently stuck"; any negative number works but ±Infinity makes the
+  // intent obvious in the debugger.
+  stuckSince: number;
   // Tools this entity can execute when possessed. Empty = read-only (e.g.
   // a non-possessable creature, or an early animal class).
   availableActions: ReadonlyArray<Tool>;
@@ -95,6 +104,7 @@ export abstract class LivingEntity extends Entity {
     this.longTermMemory = [];
     this.traits = 0;
     this.softCollide = true;
+    this.stuckSince = Number.NEGATIVE_INFINITY;
     this.availableActions = [];
   }
 

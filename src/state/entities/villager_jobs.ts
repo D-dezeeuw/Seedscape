@@ -42,10 +42,6 @@ const WALK_SPEED_TILES_PER_SEC = 4;
 const ARRIVE_EPSILON = 0.1;
 // Seconds the settler stays put on each act tile (harvest, water, deposit).
 const ACT_DURATION_SEC = 0.6;
-// If the settler hasn't advanced a waypoint for this long, give up — the
-// path is probably blocked by something the planner didn't see (other
-// settler, transient state). Cancelling lets a re-emit pick it up later.
-const STUCK_TIMEOUT_SEC = 5;
 // Window across which the *first* claim attempt is spread, derived from a
 // hash of the settler id. With 150 settlers spawned at once, this turns a
 // 150-request spike on tick 0 into a smooth ~38/tick stream over the first
@@ -63,6 +59,17 @@ const FAIL_BACKOFF_MAX_SEC = 0.5;
 // nextClaimAttemptTime. Real timestamps are non-negative, so any negative
 // number works; -Infinity makes the intent obvious in the debugger.
 const STAGGER_UNSET = Number.NEGATIVE_INFINITY;
+// First chance to break out of a stalled walk: at this point we ask the
+// pathfinder for a fresh route from the current tile. World may have
+// changed (a settler moved off the corridor, a new building opened a
+// shortcut), so the new route can differ even though gridVersion didn't
+// bump. We re-plan at most once per walk segment — see hasReplanned.
+const REPLAN_THRESHOLD_SEC = 3.5;
+// Last-resort: settler has been stuck for longer than the relax-then-
+// ghost decay (entity_manager) plus a margin. Cancel the job and let a
+// re-emit reschedule. Bumped from 5 to 6 so the relaxation has room to
+// resolve without triggering a cancel cascade across a clumped crowd.
+const STUCK_TIMEOUT_SEC = 6.0;
 
 type Phase = "to_source" | "to_target";
 
@@ -91,6 +98,11 @@ export class VillagerJobController {
   // the spawn-burst stagger (once, on first idle tick) and bumped after
   // every failed claim. Settlers wander while waiting.
   private nextClaimAttemptTime: number = STAGGER_UNSET;
+  // True once we've burned our one stuck-induced re-plan slot for the
+  // current job claim. Reset to false when the controller returns to
+  // idle (job complete, cancelled, or claim freshly acquired) so each
+  // new claim gets a fresh chance to dodge transient blockers.
+  private hasReplanned = false;
 
   // Inspect helpers (debug UI, tests).
   currentJobId(): number | null {
@@ -120,7 +132,17 @@ export class VillagerJobController {
   abandon(services: EntityServices | undefined): void {
     if (this.state.kind === "idle" || this.state.kind === "no_op") return;
     if (services?.jobs) services.jobs.release(this.state.jobId);
+    this.setIdle();
+  }
+
+  // Centralised "drop back to idle" that also resets per-claim state
+  // (re-plan slot). Every transition out of an active job must go
+  // through this helper — replacing `this.state = { kind: "idle" }`
+  // with an inline assignment would leak a stale hasReplanned across
+  // the next claim and quietly disable replan-on-stuck for that job.
+  private setIdle(): void {
     this.state = { kind: "idle" };
+    this.hasReplanned = false;
   }
 
   // Run one tick of the state machine. Returns true if the controller
@@ -345,7 +367,7 @@ export class VillagerJobController {
     if (waypoints.length < 2) {
       // Path not found.
       services.jobs?.cancel(jobId, "path not found");
-      this.state = { kind: "idle" };
+      this.setIdle();
       return;
     }
     this.state = {
@@ -363,7 +385,7 @@ export class VillagerJobController {
     if (this.state.kind !== "requesting_path") return;
     if (this.state.requestNonce !== nonce) return;
     services.jobs?.cancel(this.state.jobId, "path request rejected");
-    this.state = { kind: "idle" };
+    this.setIdle();
   }
 
   private tickWalking(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
@@ -377,15 +399,45 @@ export class VillagerJobController {
     const ty = (wp[this.state.idx + 1] as number) + 0.5;
     const remaining = v.moveToward(tx, ty, WALK_SPEED_TILES_PER_SEC, ctx.dt, ctx.isWalkable);
     if (remaining < ARRIVE_EPSILON) {
+      // Forward progress: clear stuck timer and let the separation pass
+      // restore full collision radius next tick.
+      v.stuckSince = Number.NEGATIVE_INFINITY;
       this.state.idx += 2;
       this.state.lastAdvanceTime = ctx.time;
       if (this.state.idx >= wp.length) {
         return this.advanceToActing(v, ctx, services);
       }
-    } else if (ctx.time - this.state.lastAdvanceTime > STUCK_TIMEOUT_SEC) {
-      // Stuck. Cancel — re-emit will reschedule if still relevant.
+      return true;
+    }
+
+    // Didn't advance this tick. Mark the entity as stuck (idempotent —
+    // only the first call sets the timer, subsequent ones are no-ops
+    // until we advance) so entity_manager.resolveSeparation can decay
+    // its radius.
+    if (v.stuckSince === Number.NEGATIVE_INFINITY) v.stuckSince = ctx.time;
+
+    const stuckFor = ctx.time - this.state.lastAdvanceTime;
+    if (stuckFor > STUCK_TIMEOUT_SEC) {
+      // Last resort: relaxation didn't break the deadlock either.
+      // Cancel; re-emit will reschedule the job from a clean slate.
       services.jobs?.cancel(this.state.jobId, "stuck");
-      this.state = { kind: "idle" };
+      v.stuckSince = Number.NEGATIVE_INFINITY;
+      this.setIdle();
+      return true;
+    }
+    if (!this.hasReplanned && stuckFor > REPLAN_THRESHOLD_SEC) {
+      // First chance: ask for a fresh path from the current tile. The
+      // hasReplanned flag prevents a stuck settler from spamming the
+      // worker — it's reset only when the controller returns to idle.
+      const job = services.jobs?.get(this.state.jobId);
+      if (job) {
+        this.hasReplanned = true;
+        if (this.state.phase === "to_source") {
+          this.requestPathToSource(v, ctx, services, job);
+        } else {
+          this.requestPathToTarget(v, ctx, services, job);
+        }
+      }
     }
     return true;
   }
@@ -415,7 +467,7 @@ export class VillagerJobController {
     if (!job) {
       // Job was cancelled out from under us (e.g., crash recovery);
       // settle back to idle.
-      this.state = { kind: "idle" };
+      this.setIdle();
       return true;
     }
 
@@ -426,7 +478,7 @@ export class VillagerJobController {
       //   - else → walk to target
       if (sameTile(job.source, job.target)) {
         board.complete(job.id);
-        this.state = { kind: "idle" };
+        this.setIdle();
       } else {
         this.requestPathToTarget(v, ctx, services, job);
       }
@@ -436,7 +488,7 @@ export class VillagerJobController {
     // phase === "to_target"
     this.actAtTarget(v, ctx, services, job);
     board.complete(job.id);
-    this.state = { kind: "idle" };
+    this.setIdle();
     return true;
   }
 

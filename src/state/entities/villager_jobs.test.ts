@@ -401,4 +401,86 @@ describe("VillagerJobController integration", () => {
     // Dispenser drained by 1 (settler picked up exactly one seed).
     expect(world.crates.countAt(8, 8, ITEM_IDS.WHEAT_SEED)).toBe(2);
   });
+
+  test("stuck settler re-plans once before cancelling", async () => {
+    // Reproduces the deadlock case: settler walking toward a goal stalls
+    // (we simulate by setting dt=0 once it's in walking state). At
+    // REPLAN_THRESHOLD_SEC (~3.5s) the controller asks for a fresh path;
+    // if that also doesn't help, at STUCK_TIMEOUT_SEC (~6s) the job is
+    // cancelled. We count post-walk path requests to verify exactly
+    // one replan fires before the cancel.
+    const chunk = world.chunks.get(chunkKey(0, 0))!;
+    chunk.data.tileId[tileIndex(20, 20)] = WHEAT_BASE;
+    chunk.data.state[tileIndex(20, 20)] = CROP_STAGE_HARVESTABLE;
+    chunk.data.tileId[tileIndex(15, 15)] = CRATE_TILE;
+
+    const { services, board, client } = makeServices(world);
+    await flush();
+    const v = new Villager(
+      77,
+      { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
+      "Z",
+      { x: 1, y: 1 },
+    );
+
+    board.enqueue({
+      kind: 3, // HARVEST_CROP
+      source: { x: 20, y: 20 },
+      target: { x: 20, y: 20 },
+      priority: 1,
+      payload: 700,
+    });
+
+    // Phase 1: tick a few frames at normal speed so the settler claims
+    // the job, requests a path, and enters walking state.
+    let time = 0;
+    for (let i = 0; i < 50; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (v.jobs.currentStateName() === "walking") break;
+    }
+    expect(v.jobs.currentStateName()).toBe("walking");
+    void client; // referenced for type only
+
+    // Phase 2: stall the settler. dt=0 means moveToward makes no
+    // progress every tick, so lastAdvanceTime never updates. Drive
+    // time forward by 8 seconds in 0.1s ctx.time increments.
+    let stuckSinceSet = false;
+    let cancelled = false;
+    let replanRequested = false;
+    let firstWalkingStart = -1;
+    // Phase 2 covers > REPLAN_THRESHOLD (3.5s) + STUCK_TIMEOUT (6s)
+    // through both the original walk and the replanned walk segment.
+    // Worst case: replan fires at 3.5s into segment 1; new segment
+    // resets the timer; cancel fires at 6s into segment 2 → ~9.5s
+    // total. 200 ticks * 0.1s = 20s gives generous headroom.
+    for (let i = 0; i < 200; i++) {
+      time += 0.1;
+      v.tick({
+        time,
+        dt: 0, // crucial: simulates "no walking progress"
+        worldSeed: 1,
+        isWalkable: () => true,
+        services,
+      });
+      // Check state BEFORE the microtask flush — the replan branch
+      // transitions to "requesting_path" synchronously inside tick(),
+      // and the path response arrives during flush; observing after
+      // flush would miss the transition window.
+      const stateName = v.jobs.currentStateName();
+      if (firstWalkingStart < 0 && stateName === "walking") firstWalkingStart = i;
+      if (firstWalkingStart >= 0 && stateName === "requesting_path") replanRequested = true;
+      await flush();
+      if (v.stuckSince !== Number.NEGATIVE_INFINITY) stuckSinceSet = true;
+      if (v.jobs.isIdle() && board.size() === 0) {
+        cancelled = true;
+        break;
+      }
+    }
+
+    expect(stuckSinceSet).toBe(true);
+    expect(replanRequested).toBe(true);
+    expect(cancelled).toBe(true);
+  });
 });

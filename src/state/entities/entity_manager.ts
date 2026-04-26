@@ -14,12 +14,41 @@ export type EntityListener = () => void;
 // Soft-collide radius (tiles). Two LivingEntity centers closer than this
 // get pushed apart along the connecting line. Tuned so the placeholder
 // disc (~0.85 tile diameter) doesn't visibly overlap.
-const SEPARATION_RADIUS = 0.7;
+export const SEPARATION_RADIUS = 0.7;
 // Spatial-hash cell size. Set equal to SEPARATION_RADIUS so any pair
 // within range is guaranteed to share at least one of the 9 cells in a
 // 3×3 neighbourhood — a smaller cell would force checking more cells per
 // query, a larger cell would put more candidates in each cell.
 const HASH_CELL_SIZE = SEPARATION_RADIUS;
+// Stuck-aware collision relaxation. The full radius applies until an
+// entity has been stuck for SEPARATION_RELAX_START_SEC; from there to
+// SEPARATION_GHOST_START_SEC the radius decays linearly toward half;
+// beyond that the entity goes into ghost mode (radius 0) so a knotted
+// crowd can untangle. Numbers chosen so brief stalls (a settler crossing
+// another's path) don't trigger relaxation, but a persistent two-settler
+// doorway resolves around the 2.5s mark — long enough that the relaxation
+// reads as "they squeezed past" rather than "they teleported through".
+export const SEPARATION_RELAX_START_SEC = 1.0;
+export const SEPARATION_GHOST_START_SEC = 2.5;
+// Lower bound during the relax window — half the full radius. Anything
+// less and overlap looks comical even before ghost mode kicks in.
+const SEPARATION_RELAX_FLOOR = 0.5;
+
+// Effective collision radius for an entity, given the current sim time.
+// `time` matches EntityTickContext.time. Pure function — exported for
+// unit tests that walk the time → radius curve at the boundaries.
+export function effectiveSeparationRadius(stuckSince: number, time: number): number {
+  if (stuckSince === Number.NEGATIVE_INFINITY) return SEPARATION_RADIUS;
+  const stuck = time - stuckSince;
+  if (stuck < SEPARATION_RELAX_START_SEC) return SEPARATION_RADIUS;
+  if (stuck < SEPARATION_GHOST_START_SEC) {
+    const t =
+      (stuck - SEPARATION_RELAX_START_SEC) /
+      (SEPARATION_GHOST_START_SEC - SEPARATION_RELAX_START_SEC);
+    return SEPARATION_RADIUS * (1 - (1 - SEPARATION_RELAX_FLOOR) * t);
+  }
+  return 0; // ghost mode
+}
 
 export class EntityManager {
   private nextId = 1;
@@ -169,14 +198,23 @@ export class EntityManager {
   }
 
   private tryPush(a: LivingEntity, b: LivingEntity, ctx: EntityTickContext): void {
+    // Each entity's effective radius decays with its own stuck timer.
+    // Use the min so a knot containing one ghosting and one normal
+    // settler still untangles — the ghost lets the normal one push
+    // through. Using max would block resolution.
+    const ra = effectiveSeparationRadius(a.stuckSince, ctx.time);
+    const rb = effectiveSeparationRadius(b.stuckSince, ctx.time);
+    const radius = Math.min(ra, rb);
+    if (radius <= 0) return;
+
     const dx = a.worldX() - b.worldX();
     const dy = a.worldY() - b.worldY();
     const d = Math.hypot(dx, dy);
-    if (d >= SEPARATION_RADIUS) return;
+    if (d >= radius) return;
     const safe = d > 1e-4 ? d : 1e-4;
     const ux = dx / safe || 1;
     const uy = dy / safe || 0;
-    const push = (SEPARATION_RADIUS - d) * 0.5;
+    const push = (radius - d) * 0.5;
 
     const ax = a.worldX() + ux * push;
     const ay = a.worldY() + uy * push;
