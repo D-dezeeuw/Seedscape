@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { Mount, Pet } from "./animal";
-import { FACING_EAST, FACING_NORTH, FACING_SOUTH, FACING_WEST } from "./entity";
+import {
+  FACING_EAST,
+  FACING_NORTH,
+  FACING_SOUTH,
+  FACING_WEST,
+  type Facing,
+} from "./entity";
 import { makeFullNeeds, SHORT_TERM_CAPACITY } from "./living_entity";
 import { Villager } from "./villager";
 
@@ -32,6 +38,52 @@ describe("Entity coordinate math", () => {
     expect(v.chunkY).toBe(1);
     expect(v.localX).toBeCloseTo(31.5, 5);
     expect(v.localY).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("Entity.facedTile", () => {
+  const cases: Array<[Facing, number, number, string]> = [
+    [FACING_NORTH, 4, 4, "north → -y"],
+    [FACING_SOUTH, 4, 6, "south → +y"],
+    [FACING_EAST, 5, 5, "east → +x"],
+    [FACING_WEST, 3, 5, "west → -x"],
+  ];
+
+  for (const [facing, expectedX, expectedY, label] of cases) {
+    test(label, () => {
+      // Stand at world tile (4, 5), sub-tile center (4.5, 5.5).
+      const v = new Villager(
+        1,
+        { chunkX: 0, chunkY: 0, localX: 4.5, localY: 5.5 },
+        "T",
+        { x: 0, y: 0 },
+        facing,
+      );
+      expect(v.facedTile()).toEqual({ x: expectedX, y: expectedY });
+    });
+  }
+
+  test("custom distance offsets further along facing", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 5.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_EAST,
+    );
+    expect(v.facedTile(3)).toEqual({ x: 7, y: 5 });
+  });
+
+  test("works across chunk boundaries (negative coords)", () => {
+    const v = new Villager(
+      1,
+      { chunkX: -1, chunkY: 0, localX: 0.5, localY: 0.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_WEST,
+    );
+    // Standing at world tile (-32, 0); facing west → (-33, 0).
+    expect(v.facedTile()).toEqual({ x: -33, y: 0 });
   });
 });
 
