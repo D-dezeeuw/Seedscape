@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Pet, Mount } from "./animal";
+import { Mount, Pet } from "./animal";
 import { FACING_EAST, FACING_NORTH, FACING_SOUTH, FACING_WEST } from "./entity";
 import { makeFullNeeds, SHORT_TERM_CAPACITY } from "./living_entity";
 import { Villager } from "./villager";
@@ -8,13 +8,19 @@ const POS = { chunkX: 0, chunkY: 0, localX: 4, localY: 5 };
 
 describe("Entity coordinate math", () => {
   test("worldX/worldY combine chunk + local", () => {
-    const v = new Villager(1, { chunkX: 2, chunkY: 3, localX: 1.5, localY: 0.25 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: 2, chunkY: 3, localX: 1.5, localY: 0.25 }, "T", {
+      x: 0,
+      y: 0,
+    });
     expect(v.worldX()).toBe(2 * 32 + 1.5);
     expect(v.worldY()).toBe(3 * 32 + 0.25);
   });
 
   test("worldTileX floors world coords", () => {
-    const v = new Villager(1, { chunkX: -1, chunkY: 0, localX: 31.7, localY: 0 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: -1, chunkY: 0, localX: 31.7, localY: 0 }, "T", {
+      x: 0,
+      y: 0,
+    });
     // -32 + 31.7 = -0.3 → floor → -1
     expect(v.worldTileX()).toBe(-1);
   });

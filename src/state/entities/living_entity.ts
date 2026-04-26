@@ -7,7 +7,15 @@
 // Today's only behavior: a moveToward helper that updates position and
 // facing. Subclasses (Villager etc.) compose this into their tick logic.
 
-import { Entity, type EntityPosition, type Facing, FACING_EAST, FACING_NORTH, FACING_SOUTH, FACING_WEST } from "./entity";
+import {
+  Entity,
+  type EntityPosition,
+  FACING_EAST,
+  FACING_NORTH,
+  FACING_SOUTH,
+  FACING_WEST,
+  type Facing,
+} from "./entity";
 
 // Six needs per docs/18 — each clamped 0..255. Initialized full so a
 // freshly-spawned entity isn't immediately critical.
@@ -29,11 +37,11 @@ export function makeFullNeeds(): Needs {
 export const SHORT_TERM_CAPACITY = 16;
 
 export interface MemoryEvent {
-  type: number;       // event type enum (0 = empty)
-  tick: number;       // when it happened (sim ticks since world start)
-  subjectId: number;  // who/what was involved
-  moodDelta: number;  // -128..127
-  weight: number;     // current weight (0..255), decays over time
+  type: number; // event type enum (0 = empty)
+  tick: number; // when it happened (sim ticks since world start)
+  subjectId: number; // who/what was involved
+  moodDelta: number; // -128..127
+  weight: number; // current weight (0..255), decays over time
 }
 
 export interface LongTermEvent {
@@ -41,8 +49,8 @@ export interface LongTermEvent {
   firstTick: number;
   lastTick: number;
   subjectId: number;
-  weight: number;     // 0..65535 (Uint16)
-  flags: number;      // positive/negative/trauma/bond bitmask
+  weight: number; // 0..65535 (Uint16)
+  flags: number; // positive/negative/trauma/bond bitmask
 }
 
 export abstract class LivingEntity extends Entity {
@@ -58,9 +66,9 @@ export abstract class LivingEntity extends Entity {
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
     this.needs = makeFullNeeds();
-    this.shortTermMemory = new Array(SHORT_TERM_CAPACITY).fill(null).map(
-      () => ({ type: 0, tick: 0, subjectId: 0, moodDelta: 0, weight: 0 }),
-    );
+    this.shortTermMemory = new Array(SHORT_TERM_CAPACITY)
+      .fill(null)
+      .map(() => ({ type: 0, tick: 0, subjectId: 0, moodDelta: 0, weight: 0 }));
     this.shortTermHead = 0;
     this.longTermMemory = [];
     this.traits = 0;

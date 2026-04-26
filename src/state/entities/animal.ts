@@ -9,12 +9,7 @@
 //
 // All three reuse LivingEntity's needs / memory / moveToward helpers.
 
-import {
-  type EntityPosition,
-  type EntityTickContext,
-  type EntityType,
-  type Facing,
-} from "./entity";
+import type { EntityPosition, EntityTickContext, EntityType, Facing } from "./entity";
 import { LivingEntity } from "./living_entity";
 
 export abstract class Animal extends LivingEntity {

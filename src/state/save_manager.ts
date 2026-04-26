@@ -5,13 +5,16 @@
 import type { Camera } from "../input/camera";
 import type { IoClient } from "../workers/io_client";
 import type { ChunkManager } from "../world/chunk_manager";
+import type { EntityManager } from "./entities/entity_manager";
+import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
 import type { Inventory } from "./inventory";
 import type { NpcOrder, OrderBook } from "./orders";
 import type { Player, PlayerSnapshot } from "./player";
 
-// Bumped from 1 to 2 in Phase 4 — Snapshot now carries orders + an absolute
-// game-second clock. Older saves are dropped on load.
-export const SAVE_VERSION = 2;
+// 1 → 2 (Phase 4): added orders + gameTimeSec.
+// 2 → 3 (Phase 5): added entities (Villager / Pet / Mount).
+// Older saves are dropped on load.
+export const SAVE_VERSION = 3;
 
 export interface SavedChunk {
   chunkX: number;
@@ -32,6 +35,7 @@ export interface Snapshot {
   // Wall-clock seconds since the world started (game time, not real time).
   // Lets the order book know how to schedule next refresh on load.
   gameTimeSec: number;
+  entities: SavedEntity[];
 }
 
 export interface SaveManagerDeps {
@@ -42,6 +46,7 @@ export interface SaveManagerDeps {
   inventory: Inventory;
   chunkManager: ChunkManager;
   orders: OrderBook;
+  entityManager: EntityManager;
   // Function returning the current game-time-seconds when called.
   gameTimeSec: () => number;
 }
@@ -64,6 +69,8 @@ export class SaveManager {
         metadata: new Uint8Array(data.metadata),
       });
     }
+    const entities: SavedEntity[] = [];
+    for (const e of this.deps.entityManager.iterate()) entities.push(serializeEntity(e));
     return {
       version: SAVE_VERSION,
       worldSeed: this.deps.worldSeed,
@@ -73,6 +80,7 @@ export class SaveManager {
       chunks,
       orders: this.deps.orders.toJSON(),
       gameTimeSec: this.deps.gameTimeSec(),
+      entities,
     };
   }
 
@@ -109,6 +117,9 @@ export class SaveManager {
         state: c.state,
         metadata: c.metadata,
       });
+    }
+    for (const saved of snapshot.entities) {
+      this.deps.entityManager.add(deserializeEntity(saved));
     }
   }
 }

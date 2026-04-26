@@ -6,6 +6,7 @@ import { attachTileInteraction } from "./input/tile_interaction";
 import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
+import { EntityManager } from "./state/entities/entity_manager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
@@ -106,6 +107,7 @@ async function bootstrap(): Promise<void> {
   const inventory = new Inventory();
   inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
   const orders = new OrderBook(0);
+  const entityManager = new EntityManager();
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.
@@ -119,6 +121,7 @@ async function bootstrap(): Promise<void> {
     inventory,
     chunkManager,
     orders,
+    entityManager,
     gameTimeSec: () => gameTimeSec,
   });
 

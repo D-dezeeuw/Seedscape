@@ -7,7 +7,13 @@
 // villagers diverge and replays are reproducible.
 
 import { mulberry32 } from "../../shared/rng";
-import { type EntityPosition, type EntityTickContext, type EntityType, FACING_SOUTH, type Facing } from "./entity";
+import {
+  type EntityPosition,
+  type EntityTickContext,
+  type EntityType,
+  FACING_SOUTH,
+  type Facing,
+} from "./entity";
 import { LivingEntity } from "./living_entity";
 
 const WALK_SPEED_TILES_PER_SEC = 4;
@@ -63,7 +69,8 @@ export class Villager extends LivingEntity {
 
     // Arrived: idle a bit, then pick a new target.
     const rng = villagerRng(ctx.worldSeed, this.id, ctx.time);
-    this.idleUntilTime = ctx.time + IDLE_SECONDS_MIN + rng() * (IDLE_SECONDS_MAX - IDLE_SECONDS_MIN);
+    this.idleUntilTime =
+      ctx.time + IDLE_SECONDS_MIN + rng() * (IDLE_SECONDS_MAX - IDLE_SECONDS_MIN);
     this.pickNewWanderTarget(ctx, rng);
   }
 
