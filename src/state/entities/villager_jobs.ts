@@ -39,6 +39,23 @@ const ACT_DURATION_SEC = 0.6;
 // path is probably blocked by something the planner didn't see (other
 // settler, transient state). Cancelling lets a re-emit pick it up later.
 const STUCK_TIMEOUT_SEC = 5;
+// Window across which the *first* claim attempt is spread, derived from a
+// hash of the settler id. With 150 settlers spawned at once, this turns a
+// 150-request spike on tick 0 into a smooth ~38/tick stream over the first
+// few seconds. Anything in the 2–6s range works; 4s leaves the spawn
+// animation visible without making settlers feel sluggish.
+const FIRST_CLAIM_STAGGER_SEC = 4;
+// After a failed claim (no matching job, or claim-and-release for stale
+// HARVEST), back off briefly before re-asking. Without this, 150 idle
+// settlers each scan the board every entity tick (~60Hz) — a hot loop
+// over O(jobs) per settler. Even a small backoff drops that 60× and the
+// jitter prevents them from re-syncing on a common cadence.
+const FAIL_BACKOFF_MIN_SEC = 0.2;
+const FAIL_BACKOFF_MAX_SEC = 0.5;
+// Sentinel marking "no stagger applied yet" — initial value of
+// nextClaimAttemptTime. Real timestamps are non-negative, so any negative
+// number works; -Infinity makes the intent obvious in the debugger.
+const STAGGER_UNSET = Number.NEGATIVE_INFINITY;
 
 type Phase = "to_source" | "to_target";
 
@@ -63,6 +80,10 @@ export class VillagerJobController {
   // Monotonic request id so async path replies that arrive after a
   // re-plan or job cancel can be discarded.
   private nextNonce = 1;
+  // Earliest time tickIdle is allowed to ask the board for work. Set by
+  // the spawn-burst stagger (once, on first idle tick) and bumped after
+  // every failed claim. Settlers wander while waiting.
+  private nextClaimAttemptTime: number = STAGGER_UNSET;
 
   // Inspect helpers (debug UI, tests).
   currentJobId(): number | null {
@@ -121,6 +142,16 @@ export class VillagerJobController {
   private tickIdle(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
     const board = services.jobs;
     if (!board) return false;
+
+    // First-time stagger: derive a deterministic offset from the settler
+    // id so a 150-spawn burst doesn't all hit the board on the same tick.
+    // Returning false here means the villager wanders during the stagger
+    // window — it's not standing still.
+    if (this.nextClaimAttemptTime === STAGGER_UNSET) {
+      this.nextClaimAttemptTime = ctx.time + idStagger(v.id, FIRST_CLAIM_STAGGER_SEC);
+    }
+    if (ctx.time < this.nextClaimAttemptTime) return false;
+
     const fromX = v.worldTileX();
     const fromY = v.worldTileY();
 
@@ -157,12 +188,16 @@ export class VillagerJobController {
           // Another settler grabbed it first — drop the duplicate so we
           // don't leak unowned jobs.
           if (job) board.release(job.id);
+          this.scheduleRetry(v, ctx);
           return false;
         }
       }
     }
 
-    if (!job) return false;
+    if (!job) {
+      this.scheduleRetry(v, ctx);
+      return false;
+    }
 
     // HARVEST_CROP: pick a destination crate now so we know where to
     // deliver. If no crate exists, cancel the claim — without storage,
@@ -176,6 +211,7 @@ export class VillagerJobController {
           : null;
       if (!hit) {
         board.release(job.id);
+        this.scheduleRetry(v, ctx);
         return false;
       }
       job.target = hit.standing;
@@ -186,11 +222,19 @@ export class VillagerJobController {
     // built over the water tile). Re-emit will pick it up next scan.
     if (!sourceStillValid(job, services)) {
       board.cancel(job.id, "stale source");
+      this.scheduleRetry(v, ctx);
       return false;
     }
 
     this.requestPathToSource(v, ctx, services, job);
     return true;
+  }
+
+  // After a failed claim, defer the next attempt by a jittered backoff so
+  // 150 idle settlers don't all rescan the board on the same tick. Jitter
+  // is hashed off (id, time) so neighbours don't sync on a common cadence.
+  private scheduleRetry(v: Villager, ctx: EntityTickContext): void {
+    this.nextClaimAttemptTime = ctx.time + jitterBackoff(v.id, ctx.time);
   }
 
   private requestPathToSource(
@@ -416,6 +460,28 @@ export class VillagerJobController {
 }
 
 // Helpers ----------------------------------------------------------------
+
+// Knuth multiplicative hash on a 32-bit integer. Cheap, well-distributed,
+// no per-call allocation. Used for both id stagger and per-attempt jitter
+// so neighbour settlers don't sync on the same cadence.
+function hash32(x: number): number {
+  return (Math.imul(x | 0, 2654435761) >>> 0) / 0x1_0000_0000;
+}
+
+// Initial-claim stagger: deterministic offset in [0, windowSec) keyed off
+// the settler id. Same settler always gets the same stagger across replays
+// — no Math.random() means save/load determinism is preserved.
+function idStagger(id: number, windowSec: number): number {
+  return hash32(id) * windowSec;
+}
+
+// Per-attempt backoff: time-bucketed so the same settler retrying on
+// successive ticks hashes to different jitter, breaking up cohort sync
+// (the case where several settlers became idle on the exact same tick).
+function jitterBackoff(id: number, time: number): number {
+  const bucket = (id ^ ((time * 1000) | 0)) >>> 0;
+  return FAIL_BACKOFF_MIN_SEC + hash32(bucket) * (FAIL_BACKOFF_MAX_SEC - FAIL_BACKOFF_MIN_SEC);
+}
 
 function sameTile(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
   return a.x === b.x && a.y === b.y;
