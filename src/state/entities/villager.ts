@@ -16,6 +16,7 @@ import {
   type Facing,
 } from "./entity";
 import { LivingEntity, VILLAGER_AVAILABLE_ACTIONS } from "./living_entity";
+import { VillagerJobController } from "./villager_jobs";
 
 const WALK_SPEED_TILES_PER_SEC = 4;
 const WANDER_RADIUS = 6;
@@ -55,6 +56,10 @@ export class Villager extends LivingEntity {
   // When `idleUntilTime > ctx.time`, the villager stays put. 0 means "go
   // immediately on next tick" (initial state).
   private idleUntilTime: number;
+  // Phase 7 job state machine. When services are present in ctx, this
+  // takes priority over wander; when absent (existing tests, headless
+  // sims) the villager wanders as before.
+  readonly jobs = new VillagerJobController();
 
   constructor(
     id: number,
@@ -105,6 +110,11 @@ export class Villager extends LivingEntity {
   }
 
   tick(ctx: EntityTickContext): void {
+    // Phase 7: when services are wired, the job controller drives all
+    // motion. Wander only runs when the controller declines to handle
+    // the tick (no services, or no claimable job and reserves are full).
+    if (ctx.services && this.jobs.tick(this, ctx, ctx.services)) return;
+
     if (ctx.time < this.idleUntilTime) return;
 
     const remaining = this.moveToward(

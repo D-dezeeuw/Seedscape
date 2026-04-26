@@ -10,6 +10,8 @@
 // access pattern (deposit/withdraw on a known tile, list nearest by scan).
 
 import type { ItemId } from "../../state/items";
+import { CHUNK_SIZE, type ChunkRecord, tileIndex } from "../chunk";
+import { isEntityWalkable } from "../walkability";
 
 export const CRATE_TILE_ID = 220;
 
@@ -100,27 +102,66 @@ export class CrateStore {
     }
   }
 
-  // Find the closest crate with available capacity for `item`, by Manhattan
-  // distance from (fromX, fromY). Returns null if no crate exists. The
-  // pathfinder still has to confirm reachability — this is a hint, not a
-  // proof.
-  nearestCrateWithRoom(fromX: number, fromY: number): { x: number; y: number } | null {
-    let bestKey: string | null = null;
+  // Find the closest crate with available capacity, by Manhattan distance
+  // from (fromX, fromY), AND a walkable standing tile next to it. Walks
+  // loaded chunks for any tile with id CRATE_TILE_ID — that's the source
+  // of truth, not this store, since a freshly placed empty crate has no
+  // entry yet. Returns null if no crate has both space and a reachable
+  // standing tile.
+  nearestCrateWithRoom(
+    chunks: { allChunkRecords(): IterableIterator<[string, ChunkRecord]> },
+    fromX: number,
+    fromY: number,
+  ): { crate: { x: number; y: number }; standing: { x: number; y: number } } | null {
+    // Snapshot loaded chunks so per-candidate neighbour lookups don't
+    // re-walk the iterator.
+    const snap = new Map<string, ChunkRecord>();
+    for (const [key, rec] of chunks.allChunkRecords()) snap.set(key, rec);
+
+    const tileIdAt = (wx: number, wy: number): number | null => {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = snap.get(`${cx | 0},${cy | 0}`);
+      if (!rec) return null;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      return rec.data.tileId[ly * CHUNK_SIZE + lx] ?? 0;
+    };
+
+    let best: { crate: { x: number; y: number }; standing: { x: number; y: number } } | null = null;
     let bestDist = Number.POSITIVE_INFINITY;
-    for (const [key, inner] of this.contents) {
-      let total = 0;
-      for (const c of inner.values()) total += c;
-      if (total >= CRATE_CAPACITY) continue;
-      const [x, y] = parseTileKey(key);
-      const dist = Math.abs(x - fromX) + Math.abs(y - fromY);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestKey = key;
+
+    for (const [key, record] of snap) {
+      const [cx, cy] = parseTileKey(key);
+      const baseX = cx * CHUNK_SIZE;
+      const baseY = cy * CHUNK_SIZE;
+      for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          if ((record.data.tileId[tileIndex(lx, ly)] ?? 0) !== CRATE_TILE_ID) continue;
+          const wx = baseX + lx;
+          const wy = baseY + ly;
+          if (this.totalAt(wx, wy) >= CRATE_CAPACITY) continue;
+          // Pick the closest walkable neighbour as the standing tile.
+          const candidates = [
+            { x: wx + 1, y: wy },
+            { x: wx - 1, y: wy },
+            { x: wx, y: wy + 1 },
+            { x: wx, y: wy - 1 },
+          ];
+          for (const c of candidates) {
+            const tile = tileIdAt(c.x, c.y);
+            if (tile === null) continue;
+            if (!isEntityWalkable(tile)) continue;
+            const dist = Math.abs(c.x - fromX) + Math.abs(c.y - fromY);
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = { crate: { x: wx, y: wy }, standing: c };
+            }
+          }
+        }
       }
     }
-    if (!bestKey) return null;
-    const [x, y] = parseTileKey(bestKey);
-    return { x, y };
+    return best;
   }
 
   toJSON(): CrateContentsSnapshot {

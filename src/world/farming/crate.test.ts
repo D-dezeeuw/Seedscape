@@ -1,7 +1,37 @@
 import { describe, expect, test } from "vitest";
 import { ITEM_IDS } from "../../state/items";
+import {
+  allocChunkData,
+  CHUNK_FLAG_DIRTY_RENDER,
+  type ChunkRecord,
+  tileIndex,
+} from "../chunk";
+import { chunkKey } from "../coords";
 import { CRATE_CAPACITY, CRATE_TILE_ID, CrateStore } from "./crate";
 import { isEntityWalkable } from "../walkability";
+
+function makeChunks(records: Array<[string, ChunkRecord]>) {
+  return {
+    *allChunkRecords() {
+      yield* records;
+    },
+  };
+}
+
+const TILE_DRY_GRASS = 10;
+
+function chunkWithCratesAt(
+  cx: number,
+  cy: number,
+  cratePositions: Array<{ lx: number; ly: number }>,
+): [string, ChunkRecord] {
+  const data = allocChunkData();
+  // Default chunk fill is 0 (shallow water = blocked). Lay grass so crate
+  // neighbours are walkable; tests need a stand-on tile next to each crate.
+  for (let i = 0; i < data.tileId.length; i++) data.tileId[i] = TILE_DRY_GRASS;
+  for (const p of cratePositions) data.tileId[tileIndex(p.lx, p.ly)] = CRATE_TILE_ID;
+  return [chunkKey(cx, cy), { data, flags: CHUNK_FLAG_DIRTY_RENDER }];
+}
 
 describe("crate tile id", () => {
   test("CRATE_TILE_ID lives in the building range and is non-walkable", () => {
@@ -65,20 +95,47 @@ describe("CrateStore", () => {
 
   test("nearestCrateWithRoom finds closest by Manhattan distance", () => {
     const store = new CrateStore();
-    store.deposit(0, 0, ITEM_IDS.WHEAT, 1);
-    store.deposit(10, 0, ITEM_IDS.WHEAT, 1);
-    store.deposit(0, 10, ITEM_IDS.WHEAT, 1);
-    expect(store.nearestCrateWithRoom(1, 1)).toEqual({ x: 0, y: 0 });
-    expect(store.nearestCrateWithRoom(8, 0)).toEqual({ x: 10, y: 0 });
+    const chunks = makeChunks([
+      chunkWithCratesAt(0, 0, [
+        { lx: 5, ly: 5 },
+        { lx: 15, ly: 0 },
+      ]),
+    ]);
+    const hit = store.nearestCrateWithRoom(chunks, 6, 6);
+    expect(hit?.crate).toEqual({ x: 5, y: 5 });
+    // Closest standing tile from (6, 6) is (6, 5) or (5, 6) — both
+    // Manhattan distance 1 from settler. Verify it's adjacent to the crate.
+    expect(Math.abs((hit?.standing.x ?? 0) - 5) + Math.abs((hit?.standing.y ?? 0) - 5)).toBe(1);
   });
 
   test("nearestCrateWithRoom skips full crates", () => {
     const store = new CrateStore();
-    // Crate 1 close but full.
-    store.deposit(1, 0, ITEM_IDS.WHEAT, CRATE_CAPACITY);
-    // Crate 2 farther but with room.
-    store.deposit(20, 0, ITEM_IDS.WHEAT, 5);
-    expect(store.nearestCrateWithRoom(0, 0)).toEqual({ x: 20, y: 0 });
+    const chunks = makeChunks([
+      chunkWithCratesAt(0, 0, [
+        { lx: 2, ly: 2 },
+        { lx: 20, ly: 2 },
+      ]),
+    ]);
+    // Fill the close one to capacity.
+    store.deposit(2, 2, ITEM_IDS.WHEAT, CRATE_CAPACITY);
+    const hit = store.nearestCrateWithRoom(chunks, 0, 2);
+    expect(hit?.crate).toEqual({ x: 20, y: 2 });
+  });
+
+  test("nearestCrateWithRoom returns null when no crate tiles exist", () => {
+    const store = new CrateStore();
+    const chunks = makeChunks([chunkWithCratesAt(0, 0, [])]);
+    expect(store.nearestCrateWithRoom(chunks, 0, 0)).toBeNull();
+  });
+
+  test("nearestCrateWithRoom returns null when crate has no walkable neighbour", () => {
+    const store = new CrateStore();
+    // Chunk has crate at (1,1) surrounded by water (the default fill).
+    const data = allocChunkData();
+    data.tileId[tileIndex(1, 1)] = CRATE_TILE_ID;
+    const record: ChunkRecord = { data, flags: CHUNK_FLAG_DIRTY_RENDER };
+    const chunks = makeChunks([[chunkKey(0, 0), record]]);
+    expect(store.nearestCrateWithRoom(chunks, 0, 0)).toBeNull();
   });
 
   test("toJSON / loadFromJSON round-trip", () => {
