@@ -44,3 +44,14 @@ export function pickTile(
 
   return { worldTileX, worldTileY, chunkX, chunkY, localX, localY };
 }
+
+// Same conversion but starting from world-tile coords (e.g. an entity's
+// facedTile()). Used by the action-key path to address the same tile data
+// the click picker would.
+export function worldTileToPick(worldTileX: number, worldTileY: number): PickResult {
+  const chunkX = Math.floor(worldTileX / CHUNK_SIZE);
+  const chunkY = Math.floor(worldTileY / CHUNK_SIZE);
+  const localX = ((worldTileX % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+  const localY = ((worldTileY % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+  return { worldTileX, worldTileY, chunkX, chunkY, localX, localY };
+}

@@ -15,7 +15,7 @@ import { buildingForTile } from "../world/farming/building_registry";
 import { cropForSeed } from "../world/farming/crop_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
-import { pickTile } from "./picker";
+import { pickTile, type PickResult } from "./picker";
 import type { ToolState } from "./tool";
 
 const HARVEST_XP_PER_YIELD = 1;
@@ -33,6 +33,101 @@ function pickPlantSeed(inventory: Inventory, playerLevel: number): ItemId | null
     if (inventory.has(seed, 1)) return seed;
   }
   return null;
+}
+
+// Inputs for applyToolAt. Same surface as the click handler used to read
+// directly off TileInteractionDeps; pulling them into a parameter object
+// lets the action-key path reuse the exact same tool logic.
+export interface ToolApplyDeps {
+  tool: ToolState;
+  inventory: Inventory;
+  player: Player;
+  chunkManager: ChunkManager;
+  onEdit?: (chunkX: number, chunkY: number) => void;
+}
+
+// Runs the currently-selected tool against the given tile. Returns true
+// if the world changed (chunk dirty flags + onEdit fire). No-op when the
+// chunk isn't loaded yet, or the tool's preconditions fail (no seed, no
+// coins, target tile wrong type, etc.) — same rules as click input.
+export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
+  const record = deps.chunkManager.peekChunk(pick.chunkX, pick.chunkY);
+  if (!record) return false;
+
+  let edited = false;
+  switch (deps.tool.current) {
+    case "till": {
+      edited = tillTile(record.data, pick.localX, pick.localY).applied;
+      break;
+    }
+    case "plant": {
+      const seed = pickPlantSeed(deps.inventory, deps.player.level);
+      if (!seed) return false;
+      const def = cropForSeed(seed);
+      if (!def) return false;
+      const result = plantSeed(record.data, pick.localX, pick.localY, seed);
+      if (result.applied) {
+        deps.inventory.remove(seed, 1);
+        edited = true;
+      }
+      break;
+    }
+    case "water": {
+      edited = waterTile(record.data, pick.localX, pick.localY).applied;
+      break;
+    }
+    case "harvest": {
+      const result = harvestTile(record.data, pick.localX, pick.localY);
+      if (result.applied) {
+        if (result.yield && result.produceItem) {
+          deps.inventory.add(result.produceItem, result.yield);
+          deps.player.addXp(result.yield * HARVEST_XP_PER_YIELD);
+        }
+        edited = true;
+      }
+      break;
+    }
+    case "build": {
+      const buildingId = deps.tool.selectedBuildingId;
+      if (buildingId == null) return false;
+      const def = buildingForTile(buildingId);
+      if (!def) return false;
+      if (!deps.player.spendCoins(def.placementCost)) return false;
+      const result = setBuildingTile(record.data, pick.localX, pick.localY, def);
+      if (!result.applied) {
+        deps.player.addCoins(def.placementCost);
+        return false;
+      }
+      edited = true;
+      break;
+    }
+    case "feed": {
+      const i = pick.localY * 32 + pick.localX;
+      const tileId = record.data.tileId[i] ?? 0;
+      const def = buildingForTile(tileId);
+      if (!def) return false;
+      if (!deps.inventory.has(def.inputItem, def.inputQuantity)) return false;
+      const result = enqueueJob(record.data, pick.localX, pick.localY);
+      if (result.applied) {
+        deps.inventory.remove(def.inputItem, def.inputQuantity);
+        deps.player.addXp(PRODUCTION_FEED_XP);
+        edited = true;
+      }
+      break;
+    }
+    case "dismantle": {
+      edited = dismantleBuilding(record.data, pick.localX, pick.localY).applied;
+      break;
+    }
+    default:
+      return false;
+  }
+
+  if (edited) {
+    record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+    deps.onEdit?.(pick.chunkX, pick.chunkY);
+  }
+  return edited;
 }
 
 export interface TileInteractionDeps {
@@ -106,85 +201,16 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
       return;
     }
 
-    const record = chunkManager.peekChunk(pick.chunkX, pick.chunkY);
-    if (!record) return; // chunk hasn't been generated yet
-
-    let edited = false;
-    switch (tool.current) {
-      case "till": {
-        edited = tillTile(record.data, pick.localX, pick.localY).applied;
-        break;
-      }
-      case "plant": {
-        const seed = pickPlantSeed(inventory, player.level);
-        if (!seed) return;
-        const def = cropForSeed(seed);
-        if (!def) return;
-        const result = plantSeed(record.data, pick.localX, pick.localY, seed);
-        if (result.applied) {
-          inventory.remove(seed, 1);
-          edited = true;
-        }
-        break;
-      }
-      case "water": {
-        edited = waterTile(record.data, pick.localX, pick.localY).applied;
-        break;
-      }
-      case "harvest": {
-        const result = harvestTile(record.data, pick.localX, pick.localY);
-        if (result.applied) {
-          if (result.yield && result.produceItem) {
-            inventory.add(result.produceItem, result.yield);
-            player.addXp(result.yield * HARVEST_XP_PER_YIELD);
-          }
-          edited = true;
-        }
-        break;
-      }
-      case "build": {
-        const buildingId = tool.selectedBuildingId;
-        if (buildingId == null) return;
-        const def = buildingForTile(buildingId);
-        if (!def) return;
-        if (!player.spendCoins(def.placementCost)) return;
-        const result = setBuildingTile(record.data, pick.localX, pick.localY, def);
-        if (!result.applied) {
-          // Refund — the player paid but the placement target was wrong.
-          player.addCoins(def.placementCost);
-          return;
-        }
-        edited = true;
-        // Stay in build mode; the user can place multiple of the same kind
-        // until they switch tools or pick a different one in the shop.
-        break;
-      }
-      case "feed": {
-        const i = pick.localY * 32 + pick.localX;
-        const tileId = record.data.tileId[i] ?? 0;
-        const def = buildingForTile(tileId);
-        if (!def) return;
-        if (!inventory.has(def.inputItem, def.inputQuantity)) return;
-        const result = enqueueJob(record.data, pick.localX, pick.localY);
-        if (result.applied) {
-          inventory.remove(def.inputItem, def.inputQuantity);
-          player.addXp(PRODUCTION_FEED_XP);
-          edited = true;
-        }
-        break;
-      }
-      case "dismantle": {
-        edited = dismantleBuilding(record.data, pick.localX, pick.localY).applied;
-        break;
-      }
-      default:
-        return;
-    }
-
-    if (edited) {
-      record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
-      deps.onEdit?.(pick.chunkX, pick.chunkY);
-    }
+    applyToolAt(
+      {
+        tool,
+        inventory,
+        player,
+        chunkManager,
+        ...(deps.onEdit ? { onEdit: deps.onEdit } : {}),
+      },
+      pick,
+    );
   };
 
   const onPointerCancel = (): void => {

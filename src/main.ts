@@ -1,5 +1,6 @@
 import { createGLContext, resizeCanvasToDisplaySize, WebGL2UnsupportedError } from "./core/canvas";
 import { createFpsOverlay } from "./core/fps";
+import { attachActionKey } from "./input/action_key";
 import { Camera } from "./input/camera";
 import { attachCameraControls } from "./input/camera_controls";
 import { attachInputRouter, InputRouter } from "./input/input_router";
@@ -167,6 +168,13 @@ async function bootstrap(): Promise<void> {
   const possession = new PossessionController();
   const inputRouter = new InputRouter();
   const detachInputRouter = attachInputRouter(inputRouter, window);
+  const detachActionKey = attachActionKey({
+    possession,
+    tool,
+    inventory,
+    player,
+    chunkManager,
+  });
 
   // Camera follow + key reset on possession transitions. Subscribing
   // here instead of inline at enter() means save-load triggered enters
@@ -466,6 +474,7 @@ async function bootstrap(): Promise<void> {
       window.removeEventListener("keydown", onEscKey);
       detachControls();
       detachInputRouter();
+      detachActionKey();
       detachPossession();
       detachInteraction();
       detachHud();
