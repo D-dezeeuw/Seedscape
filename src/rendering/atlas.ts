@@ -36,7 +36,10 @@ export async function loadAtlas(
   if (!texture) throw new Error("gl.createTexture returned null");
 
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  // Flip on upload so the image's top row maps to UV.y = 1. Our vertex
+  // shader uses world-Y-up convention (top of the rendered tile is the
+  // higher worldY); without the flip, every texture renders upside down.
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
   // Pixel-art tiles: nearest filtering, no mipmaps. Prevents bleed between tiles.
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
