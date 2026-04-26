@@ -2,6 +2,8 @@
 // into the chunk's tile-action functions. Pointer drags are claimed by the
 // camera controls; this fires only on a click that didn't move (no drag).
 
+import type { Entity } from "../state/entities/entity";
+import type { EntityManager } from "../state/entities/entity_manager";
 import type { Inventory } from "../state/inventory";
 import { ITEM_IDS, type ItemId } from "../state/items";
 import type { Player } from "../state/player";
@@ -41,6 +43,11 @@ export interface TileInteractionDeps {
   player: Player;
   chunkManager: ChunkManager;
   tileWorldSize: number;
+  // Pan-mode (tool === "none") clicks first try to hit an entity. When
+  // an entity is hit, onEntityClick fires and the click is consumed —
+  // no tile action runs.
+  entityManager?: EntityManager;
+  onEntityClick?: (entity: Entity) => void;
   onEdit?: (chunkX: number, chunkY: number) => void;
 }
 
@@ -64,7 +71,6 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
     const dx = Math.abs(e.clientX - downX);
     const dy = Math.abs(e.clientY - downY);
     if (dx > CLICK_DRAG_TOLERANCE_PX || dy > CLICK_DRAG_TOLERANCE_PX) return;
-    if (tool.current === "none") return;
 
     const rect = canvas.getBoundingClientRect();
     const localX = e.clientX - rect.left;
@@ -79,6 +85,18 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
       camera.zoom,
       tileWorldSize,
     );
+
+    // Pan-mode: try to hit an entity. Otherwise fall through silently —
+    // Pan doesn't act on tiles.
+    if (tool.current === "none") {
+      if (deps.entityManager && deps.onEntityClick) {
+        const worldX = pick.worldTileX + 0.5;
+        const worldY = pick.worldTileY + 0.5;
+        const e = deps.entityManager.pickAt(worldX, worldY, 0.6);
+        if (e) deps.onEntityClick(e);
+      }
+      return;
+    }
 
     const record = chunkManager.peekChunk(pick.chunkX, pick.chunkY);
     if (!record) return; // chunk hasn't been generated yet

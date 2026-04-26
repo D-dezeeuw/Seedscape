@@ -5,7 +5,11 @@ import { attachCameraControls } from "./input/camera_controls";
 import { attachTileInteraction } from "./input/tile_interaction";
 import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
+import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
+import { EntityManager } from "./state/entities/entity_manager";
+import { spawnInitialEntities } from "./state/entities/spawn";
+import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
@@ -13,10 +17,13 @@ import { Player } from "./state/player";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
+import { EntityLabels } from "./ui/entity_labels";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
+import { createPersonWindow } from "./ui/person_window";
 import { createSettingsPanel } from "./ui/settings_panel";
+import { createSettlersWindow } from "./ui/settlers_window";
 import { createShopMenu } from "./ui/shop_menu";
 import { injectUiStyles } from "./ui/styles";
 import { createTileInfo } from "./ui/tile_info";
@@ -34,6 +41,7 @@ import {
 import { ChunkManager } from "./world/chunk_manager";
 import { visibleChunkRect } from "./world/coords";
 import { applySimDelta } from "./world/farming/sim_pipeline";
+import { isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
 const WORLD_SEED = 0xc0ffee;
@@ -88,6 +96,7 @@ async function bootstrap(): Promise<void> {
 
   const atlas = await loadAtlas(gl, "/atlas.png", ATLAS_MANIFEST);
   const renderer = new InstancedTileRenderer(gl, atlas, TILE_WORLD_SIZE);
+  const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
   const generationPool = new GenerationPool(WORLD_SEED);
   await generationPool.ready();
   const chunkManager = new ChunkManager({
@@ -106,6 +115,7 @@ async function bootstrap(): Promise<void> {
   const inventory = new Inventory();
   inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
   const orders = new OrderBook(0);
+  const entityManager = new EntityManager();
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.
@@ -119,6 +129,7 @@ async function bootstrap(): Promise<void> {
     inventory,
     chunkManager,
     orders,
+    entityManager,
     gameTimeSec: () => gameTimeSec,
   });
 
@@ -131,8 +142,33 @@ async function bootstrap(): Promise<void> {
   // on a fresh world; on load the saved nextRefreshSec drives the schedule).
   orders.tick(gameTimeSec);
 
+  // Fresh launch (no save) → drop the lonely settler near origin once
+  // chunk(0,0) is generated. Loaded saves restore them via applySnapshot.
+  if (!existingSave) {
+    void spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
+  }
+
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
+  const toaster = createToaster(document.body);
+
+  // Currently-selected entity id — drives the in-world selection ring.
+  // Null when nothing is selected.
+  let selectedEntityId: number | null = null;
+
+  const personWindow = createPersonWindow({
+    parent: document.body,
+    onPossess: (entity) => {
+      const label = entity instanceof Villager ? entity.name : entity.type;
+      toaster.show(`Possessing ${label} — coming next phase`);
+    },
+    onShow: (entity) => {
+      selectedEntityId = entity.id;
+    },
+    onHide: () => {
+      selectedEntityId = null;
+    },
+  });
 
   const detachInteraction = attachTileInteraction({
     canvas,
@@ -142,17 +178,20 @@ async function bootstrap(): Promise<void> {
     player,
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
+    entityManager,
+    onEntityClick: (entity) => personWindow.showFor(entity),
   });
 
   const detachHud = createHud(document.body, player);
+  const entityLabels = new EntityLabels(document.body);
   const detachInfo = createTileInfo({
     parent: document.body,
     canvas,
     camera,
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
+    entityManager,
   });
-  const toaster = createToaster(document.body);
 
   // Toolbar-managed windows. They start hidden; the toolbar opens/closes them.
   const inventoryWindow = createInventoryPanel(document.body, inventory);
@@ -163,15 +202,22 @@ async function bootstrap(): Promise<void> {
     player,
   });
   const shopWindow = createShopMenu({ parent: document.body, inventory, player, tool });
+  const settlersWindow = createSettlersWindow({
+    parent: document.body,
+    entityManager,
+    onSelect: (villager) => personWindow.showFor(villager),
+    onGoTo: (x, y) => camera.panTo(x, y),
+  });
   const settingsWindow = createSettingsPanel({ parent: document.body });
   const debugWindow = import.meta.env.DEV
-    ? createDebugPanel({ parent: document.body, player, inventory })
+    ? createDebugPanel({ parent: document.body, player, inventory, entityManager, camera })
     : null;
 
   const toolbarWindows: ToolbarWindow[] = [
     { id: "inventory", label: "Inventory", window: inventoryWindow },
     { id: "trader", label: "Trader", window: ordersWindow },
     { id: "shop", label: "Shop", window: shopWindow },
+    { id: "settlers", label: "Settlers", window: settlersWindow },
     { id: "settings", label: "Settings", window: settingsWindow },
   ];
 
@@ -271,11 +317,27 @@ async function bootstrap(): Promise<void> {
     if (document.visibilityState === "hidden") triggerSave();
   });
 
+  // Walkability lookup used by entity AI. Returns false if the chunk
+  // hasn't been generated yet — the wander code already falls back to
+  // home in that case.
+  const isWalkableTile = (worldTileX: number, worldTileY: number): boolean => {
+    const cx = Math.floor(worldTileX / 32);
+    const cy = Math.floor(worldTileY / 32);
+    const lx = ((worldTileX % 32) + 32) % 32;
+    const ly = ((worldTileY % 32) + 32) % 32;
+    const record = chunkManager.peekChunk(cx, cy);
+    if (!record) return false;
+    const id = record.data.tileId[ly * 32 + lx] ?? 0;
+    return isEntityWalkable(id);
+  };
+
   const start = performance.now();
+  let lastFrameMs = start;
   const frame = (timestampMs: number): void => {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
+    camera.tickAnimation(timestampMs);
     camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
@@ -289,12 +351,26 @@ async function bootstrap(): Promise<void> {
     );
     chunkManager.update(rect);
 
+    // Entity tick — main thread, every frame, with elapsed dt. Cheap at
+    // MVP scale (≤16 entities). When count grows, batch into a fixed-step
+    // accumulator for determinism.
+    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
+    lastFrameMs = timestampMs;
+    entityManager.tick({
+      time: gameTimeSec,
+      dt,
+      worldSeed: WORLD_SEED,
+      isWalkable: isWalkableTile,
+    });
+
     overlay.setChunkCount(renderer.chunkCount);
     overlay.setTileCount(renderer.tileCount);
 
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
+    entityRenderer.draw(entityManager.iterate(), camera.viewProjection, selectedEntityId);
+    entityLabels.update(entityManager.iterate(), camera, canvas.clientWidth, canvas.clientHeight);
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -312,13 +388,17 @@ async function bootstrap(): Promise<void> {
       detachInfo();
       detachToolbar();
       detachDebugButton();
+      personWindow.destroy();
       inventoryWindow.destroy();
       ordersWindow.destroy();
       shopWindow.destroy();
+      settlersWindow.destroy();
       settingsWindow.destroy();
       debugWindow?.destroy();
       detachLevelUp();
       toaster.destroy();
+      entityLabels.destroy();
+      entityRenderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();
       ioClient.terminate();

@@ -4,6 +4,8 @@
 
 import type { Camera } from "../input/camera";
 import { pickTile } from "../input/picker";
+import type { EntityManager } from "../state/entities/entity_manager";
+import { Villager } from "../state/entities/villager";
 import { tileIndex } from "../world/chunk";
 import type { ChunkManager } from "../world/chunk_manager";
 import { buildingForTile, getQueuedJobs } from "../world/farming/building_registry";
@@ -20,6 +22,9 @@ interface TileInfoDeps {
   camera: Camera;
   chunkManager: ChunkManager;
   tileWorldSize: number;
+  // Optional — when supplied, the panel adds an "Entity" row whenever
+  // an entity sits on the hovered tile.
+  entityManager?: EntityManager;
 }
 
 const TILE_NAMES: Record<number, string> = {
@@ -104,11 +109,23 @@ export function createTileInfo(deps: TileInfoDeps): () => void {
       extra = `<div class="ss-row"><span>Water</span><span>${getWaterLevel(meta)}/3</span></div>`;
     }
 
+    // Entity-on-tile lookup. Picks the closest entity within half a
+    // tile of the hovered tile center.
+    let entityRow = "";
+    if (deps.entityManager) {
+      const entity = deps.entityManager.pickAt(pick.worldTileX + 0.5, pick.worldTileY + 0.5, 0.6);
+      if (entity) {
+        const label = entity instanceof Villager ? entity.name : entity.type;
+        entityRow = `<div class="ss-row"><span>Entity</span><span>${label}</span></div>`;
+      }
+    }
+
     body.innerHTML = `
       <div class="ss-row"><span>World</span><span>${pick.worldTileX}, ${pick.worldTileY}</span></div>
       <div class="ss-row"><span>Chunk</span><span>${pick.chunkX}, ${pick.chunkY}</span></div>
       <div class="ss-row"><span>Type</span><span>${describeTile(tileId, state)}</span></div>
       ${extra}
+      ${entityRow}
     `;
   };
 

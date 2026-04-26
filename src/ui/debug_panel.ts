@@ -3,6 +3,9 @@
 // production builds. Extend with more buttons here as testing needs grow
 // (e.g. when a phase introduces new gameplay state worth poking at).
 
+import type { Camera } from "../input/camera";
+import type { EntityManager } from "../state/entities/entity_manager";
+import { Villager } from "../state/entities/villager";
 import type { Inventory } from "../state/inventory";
 import { ITEM_IDS } from "../state/items";
 import type { Player } from "../state/player";
@@ -12,6 +15,8 @@ interface DebugPanelDeps {
   parent: HTMLElement;
   player: Player;
   inventory: Inventory;
+  entityManager: EntityManager;
+  camera: Camera;
 }
 
 export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
@@ -37,6 +42,10 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     </div>
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="xp-reset">Reset XP</button>
+    </div>
+    <div class="ss-subhead">Entities</div>
+    <div class="ss-debug-row">
+      <button class="ss-btn" data-act="settler-to-camera">Settler → camera</button>
     </div>
   `;
   deps.parent.appendChild(panel);
@@ -72,6 +81,17 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
       case "xp-reset":
         deps.player.xp = 0;
         return;
+      case "settler-to-camera": {
+        // Pick the first villager and yank them to the camera center —
+        // useful when the wander target took them off-screen.
+        for (const e of deps.entityManager.iterate()) {
+          if (e instanceof Villager) {
+            e.setWorldPosition(deps.camera.x, deps.camera.y);
+            return;
+          }
+        }
+        return;
+      }
     }
   };
   panel.addEventListener("click", handler);
