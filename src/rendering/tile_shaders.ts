@@ -23,9 +23,15 @@ void main() {
   float col = mod(a_tileIndex, u_atlasSize.x);
   float row = floor(a_tileIndex / u_atlasSize.x);
 
+  // Atlas convention: tile id N at image (col=N%cols, row=floor(N/cols))
+  // with row 0 at image top. Texture is uploaded with UNPACK_FLIP_Y off,
+  // so image row 0 → UV.y = 0. World Y is up, so the top of the rendered
+  // tile (a_quadPos.y = +0.5) must sample the top of the cell — hence
+  // the negation on a_quadPos.y. Flipping that sign would render every
+  // tile upside down.
   v_uv = vec2(
     (col + a_quadPos.x + 0.5) / u_atlasSize.x,
-    (row + a_quadPos.y + 0.5) / u_atlasSize.y
+    (row - a_quadPos.y + 0.5) / u_atlasSize.y
   );
 
   v_stateFlags = a_stateFlags;
