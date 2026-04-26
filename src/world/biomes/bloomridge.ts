@@ -7,10 +7,13 @@
 // inline rather than importing from JSON because they're load-bearing for
 // generation; if data/tiles.json drifts, generation regression tests fail.
 export const BLOOMRIDGE_TILES = {
+  deepWater: 1,
   shallowWater: 0,
+  beachSand: 25,
   dryGrass: 10,
   richSoil: 11,
   farmlandUntilled: 12,
+  barrenStone: 22,
   rockyOutcrop: 20,
 } as const;
 
@@ -25,11 +28,30 @@ export function quantizeNoise(value: number, bands: number): number {
   return Math.min(bands - 1, Math.floor(t * bands));
 }
 
+// 8-band tile mapping per docs/08_biomes.md (worldgen v2). Each terrain
+// band gets its own output tile so the elevation profile reads as deep
+// water → shore → fertile band → highlands → mountain. Moisture switches
+// between dry and rich variants in the middle bands where it matters most.
 export function bloomridgeTile(terrainBand: number, moistureBand: number): number {
-  if (terrainBand <= 0) return BLOOMRIDGE_TILES.shallowWater;
-  if (terrainBand <= 2) {
-    return moistureBand >= 2 ? BLOOMRIDGE_TILES.richSoil : BLOOMRIDGE_TILES.dryGrass;
+  switch (terrainBand) {
+    case 0:
+      return BLOOMRIDGE_TILES.deepWater;
+    case 1:
+      return BLOOMRIDGE_TILES.shallowWater;
+    case 2:
+      return BLOOMRIDGE_TILES.beachSand;
+    case 3:
+      // Lush band closest to water — moisture decides between rich soil
+      // (the prime farmland substrate) and dry grass.
+      return moistureBand >= 2 ? BLOOMRIDGE_TILES.richSoil : BLOOMRIDGE_TILES.dryGrass;
+    case 4:
+      // Mid-elevation: untilled farmland in moist regions, dry grass elsewhere.
+      return moistureBand >= 1 ? BLOOMRIDGE_TILES.farmlandUntilled : BLOOMRIDGE_TILES.dryGrass;
+    case 5:
+      return BLOOMRIDGE_TILES.dryGrass;
+    case 6:
+      return BLOOMRIDGE_TILES.barrenStone;
+    default:
+      return BLOOMRIDGE_TILES.rockyOutcrop;
   }
-  if (terrainBand <= 5) return BLOOMRIDGE_TILES.farmlandUntilled;
-  return BLOOMRIDGE_TILES.rockyOutcrop;
 }
