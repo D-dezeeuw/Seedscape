@@ -524,6 +524,7 @@ async function bootstrap(): Promise<void> {
       entityLabels.destroy();
       facedReticle.destroy();
       entityRenderer.destroy();
+      renderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();
       ioClient.terminate();
