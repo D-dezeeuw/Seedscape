@@ -15,6 +15,7 @@ export function attachCameraControls(camera: Camera, target: HTMLElement): () =>
     lastY = e.clientY;
     target.setPointerCapture(e.pointerId);
     camera.cancelAnimation();
+    camera.notifyDragInput(performance.now());
   };
 
   const onPointerMove = (e: PointerEvent): void => {
@@ -27,6 +28,7 @@ export function attachCameraControls(camera: Camera, target: HTMLElement): () =>
     // moves left in world space. zoom is world-units-per-pixel so multiply.
     camera.x -= dx * camera.zoom;
     camera.y += dy * camera.zoom; // screen Y is inverted vs world Y
+    camera.notifyDragInput(performance.now());
   };
 
   const onPointerUp = (e: PointerEvent): void => {
