@@ -58,9 +58,15 @@ export function injectUiStyles(): void {
       margin: 8px 0 4px 0;
     }
 
-    /* Always-visible status panels. HUD top-right; tile-info top-left under
-       the FPS overlay (which sits at top:8px). */
+    /* Always-visible status panels. HUD top-right; performance overlay
+       top-left; tile-info under the performance overlay. */
     .ss-hud { top: 8px; right: 8px; min-width: 200px; }
+    .ss-performance {
+      top: 8px;
+      left: 8px;
+      z-index: 10;
+      pointer-events: none;
+    }
     .ss-info { top: 44px; left: 8px; min-width: 220px; max-width: 280px; }
 
     /* Toolbar-managed windows: centered above the bottom toolbar. */

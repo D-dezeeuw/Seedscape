@@ -1,5 +1,7 @@
-// Lightweight FPS / tile-count overlay. DOM-only (no canvas allocations); the
-// hot path is a single textContent write at most once per second.
+// Lightweight performance overlay. The render loop calls tick() every frame
+// and pushes the latest tile/chunk counts; the DOM only updates once per
+// second (when the FPS window rolls over). FPS is averaged over the same
+// 1-second window — frame-count divided by elapsed-ms × 1000.
 
 export interface OverlayHandle {
   tick: (timestampMs: number) => void;
@@ -9,10 +11,7 @@ export interface OverlayHandle {
 
 export function createFpsOverlay(parent: HTMLElement): OverlayHandle {
   const el = document.createElement("div");
-  el.style.cssText =
-    "position:fixed;top:8px;left:8px;padding:6px 10px;background:rgba(0,0,0,0.55);" +
-    "color:#e8eaed;font:12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;" +
-    "border-radius:4px;pointer-events:none;user-select:none;z-index:10;";
+  el.className = "ss-panel ss-performance";
   el.textContent = "fps —";
   parent.appendChild(el);
 
@@ -40,11 +39,9 @@ export function createFpsOverlay(parent: HTMLElement): OverlayHandle {
     },
     setTileCount(n) {
       tileCount = n;
-      render();
     },
     setChunkCount(n) {
       chunkCount = n;
-      render();
     },
   };
 }
