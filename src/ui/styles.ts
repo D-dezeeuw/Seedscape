@@ -107,6 +107,7 @@ export function injectUiStyles(): void {
       transform: translateX(-50%);
       display: flex;
       flex-direction: column;
+      align-items: center;
       gap: 6px;
       pointer-events: auto;
       z-index: 10;
