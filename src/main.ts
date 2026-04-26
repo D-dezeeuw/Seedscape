@@ -22,6 +22,7 @@ import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
 import { createPersonWindow } from "./ui/person_window";
 import { createSettingsPanel } from "./ui/settings_panel";
+import { createSettlersWindow } from "./ui/settlers_window";
 import { createShopMenu } from "./ui/shop_menu";
 import { injectUiStyles } from "./ui/styles";
 import { createTileInfo } from "./ui/tile_info";
@@ -189,6 +190,11 @@ async function bootstrap(): Promise<void> {
     player,
   });
   const shopWindow = createShopMenu({ parent: document.body, inventory, player, tool });
+  const settlersWindow = createSettlersWindow({
+    parent: document.body,
+    entityManager,
+    onGoTo: (x, y) => camera.panTo(x, y),
+  });
   const settingsWindow = createSettingsPanel({ parent: document.body });
   const debugWindow = import.meta.env.DEV
     ? createDebugPanel({ parent: document.body, player, inventory, entityManager, camera })
@@ -198,6 +204,7 @@ async function bootstrap(): Promise<void> {
     { id: "inventory", label: "Inventory", window: inventoryWindow },
     { id: "trader", label: "Trader", window: ordersWindow },
     { id: "shop", label: "Shop", window: shopWindow },
+    { id: "settlers", label: "Settlers", window: settlersWindow },
     { id: "settings", label: "Settings", window: settingsWindow },
   ];
 
@@ -317,6 +324,7 @@ async function bootstrap(): Promise<void> {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
+    camera.tickAnimation(timestampMs);
     camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
@@ -370,6 +378,7 @@ async function bootstrap(): Promise<void> {
       inventoryWindow.destroy();
       ordersWindow.destroy();
       shopWindow.destroy();
+      settlersWindow.destroy();
       settingsWindow.destroy();
       debugWindow?.destroy();
       detachLevelUp();

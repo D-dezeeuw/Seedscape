@@ -14,6 +14,7 @@ export function attachCameraControls(camera: Camera, target: HTMLElement): () =>
     lastX = e.clientX;
     lastY = e.clientY;
     target.setPointerCapture(e.pointerId);
+    camera.cancelAnimation();
   };
 
   const onPointerMove = (e: PointerEvent): void => {
@@ -35,6 +36,7 @@ export function attachCameraControls(camera: Camera, target: HTMLElement): () =>
 
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    camera.cancelAnimation();
     // Zoom toward cursor: convert cursor screen pos to world before/after.
     const rect = target.getBoundingClientRect();
     const sx = e.clientX - rect.left - rect.width / 2;
