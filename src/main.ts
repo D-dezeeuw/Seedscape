@@ -94,7 +94,7 @@ async function bootstrap(): Promise<void> {
 
   injectUiStyles();
 
-  const atlas = await loadAtlas(gl, "/atlas.png", ATLAS_MANIFEST);
+  const atlas = await loadAtlas(gl, `${import.meta.env.BASE_URL}atlas.png`, ATLAS_MANIFEST);
   const renderer = new InstancedTileRenderer(gl, atlas, TILE_WORLD_SIZE);
   const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
   const generationPool = new GenerationPool(WORLD_SEED);
