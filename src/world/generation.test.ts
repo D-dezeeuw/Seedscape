@@ -72,6 +72,23 @@ describe("generation produces a healthy mix of tiles", () => {
     // tile types from the 8 possible outputs.
     expect(tiles.size).toBeGreaterThanOrEqual(4);
   });
+
+  test("deep water actually appears across a wide gradient (threshold tuning)", () => {
+    // 5×5 chunks at the live world seed — the threshold band rewrite
+    // exists so band 0 (deep water) isn't a vanishing slice. Smoke check
+    // that some lake centers really land there.
+    const noise = createWorldNoise(0xc0ffee);
+    let deepWater = 0;
+    for (let cx = -2; cx <= 2; cx++) {
+      for (let cy = -2; cy <= 2; cy++) {
+        const c = generateChunk(noise, cx, cy);
+        for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
+          if (c.tileId[i] === 1 /* deep water */) deepWater++;
+        }
+      }
+    }
+    expect(deepWater).toBeGreaterThan(0);
+  });
 });
 
 describe("generation reuses preallocated buffers", () => {

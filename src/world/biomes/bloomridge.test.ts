@@ -5,6 +5,8 @@ import {
   MOISTURE_BANDS,
   quantizeNoise,
   TERRAIN_BANDS,
+  TERRAIN_THRESHOLDS,
+  terrainBandFromHeight,
 } from "./bloomridge";
 
 describe("quantizeNoise", () => {
@@ -21,6 +23,34 @@ describe("quantizeNoise", () => {
   test("zero falls in the middle band", () => {
     const middle = Math.floor(TERRAIN_BANDS / 2);
     expect(quantizeNoise(0, TERRAIN_BANDS)).toBe(middle);
+  });
+});
+
+describe("terrainBandFromHeight", () => {
+  test("noise = -1 → deep water band 0", () => {
+    expect(terrainBandFromHeight(-1)).toBe(0);
+  });
+
+  test("noise = 1 → highest band (rocky outcrop)", () => {
+    expect(terrainBandFromHeight(1)).toBe(TERRAIN_THRESHOLDS.length);
+  });
+
+  test("each cumulative threshold lands in the next band", () => {
+    // A normalized value just under threshold[i] lands in band i; just
+    // at-or-above lands in band i+1.
+    for (let i = 0; i < TERRAIN_THRESHOLDS.length; i++) {
+      const t = TERRAIN_THRESHOLDS[i] as number;
+      const justBelow = (t - 0.001) * 2 - 1; // un-normalize
+      const justAbove = (t + 0.001) * 2 - 1;
+      expect(terrainBandFromHeight(justBelow)).toBe(i);
+      expect(terrainBandFromHeight(justAbove)).toBe(i + 1);
+    }
+  });
+
+  test("output spans all 8 bands (= TERRAIN_BANDS)", () => {
+    const seen = new Set<number>();
+    for (let v = -1; v <= 1; v += 0.05) seen.add(terrainBandFromHeight(v));
+    expect(seen.size).toBe(TERRAIN_BANDS);
   });
 });
 
