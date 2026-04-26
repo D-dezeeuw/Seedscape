@@ -8,7 +8,7 @@ import type { ChunkManager } from "../world/chunk_manager";
 import type { EntityManager } from "./entities/entity_manager";
 import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
 import type { Inventory } from "./inventory";
-import type { NpcOrder, OrderBook } from "./orders";
+import type { OrderBook, OrderBookSnapshot } from "./orders";
 import type { Player, PlayerSnapshot } from "./player";
 import type { PossessionController } from "./possession";
 
@@ -19,8 +19,11 @@ import type { PossessionController } from "./possession";
 //   visually disjoint at their borders. Cleanest is to drop legacy
 //   saves so the world re-emerges coherent.
 // 4 → 5 (Phase 6): added possessedEntityId so reloads resume possession.
+// 5 → 6 (Phase 6 cleanup): OrderBook snapshot now carries rngSeed +
+//   rotationOffset so post-load refreshes match the sequence that
+//   would have run without a save/load round-trip.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 export interface SavedChunk {
   chunkX: number;
@@ -37,7 +40,7 @@ export interface Snapshot {
   player: PlayerSnapshot;
   inventory: Record<number, number>;
   chunks: SavedChunk[];
-  orders: { orders: NpcOrder[]; nextRefreshSec: number };
+  orders: OrderBookSnapshot;
   // Wall-clock seconds since the world started (game time, not real time).
   // Lets the order book know how to schedule next refresh on load.
   gameTimeSec: number;

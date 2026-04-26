@@ -67,6 +67,42 @@ describe("OrderBook", () => {
     expect(b.list()[0]?.itemId).toBe(a.list()[0]?.itemId);
   });
 
+  test("save/load preserves RNG + rotation so future refreshes match", () => {
+    // Reference timeline: tick at 0, 60, 120 — three refreshes.
+    const reference = new OrderBook(0);
+    reference.tick(0);
+    reference.tick(60);
+    reference.tick(120);
+    const refSig = reference.list().map((o) => `${o.npcId}:${o.itemId}:${o.quantity}`);
+
+    // Reload timeline: tick at 0, 60, save, fresh book, load, tick at 120.
+    // If rngSeed + rotationOffset weren't persisted, the third refresh
+    // would draw from a fresh LCG and rotation 0 instead of continuing.
+    const original = new OrderBook(0);
+    original.tick(0);
+    original.tick(60);
+    const snap = original.toJSON();
+
+    const reloaded = new OrderBook(0);
+    reloaded.loadFromJSON(snap);
+    reloaded.tick(120);
+    const reloadedSig = reloaded.list().map((o) => `${o.npcId}:${o.itemId}:${o.quantity}`);
+
+    expect(reloadedSig).toEqual(refSig);
+  });
+
+  test("snapshot carries rngSeed + rotationOffset fields", () => {
+    const book = new OrderBook(0);
+    book.tick(0);
+    const snap = book.toJSON();
+    expect(typeof snap.rngSeed).toBe("number");
+    expect(typeof snap.rotationOffset).toBe("object");
+    // After one refresh each NPC has rotated once.
+    for (const npc of NPC_DEFS) {
+      expect(snap.rotationOffset[npc.id]).toBe(1 % npc.buys.length);
+    }
+  });
+
   test("price respects the NPC's multiplier and item base price", () => {
     const book = new OrderBook(0);
     book.tick(0);

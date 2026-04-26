@@ -62,22 +62,26 @@ function priceFor(npc: NpcDef, itemId: ItemId): number {
   return Math.max(1, Math.round(base * npc.priceMultiplier));
 }
 
-// Tiny deterministic LCG used to pick quantities and item rotation. Same
-// seed → same sequence; lets save/load reproduce the order book without
-// storing the entire list (Phase 4 still saves the list for simplicity).
-function lcg(seed: number): () => number {
-  let s = seed | 0 || 1;
-  return () => {
-    s = (s * 1664525 + 1013904223) | 0;
-    return ((s >>> 16) & 0x7fff) / 0x8000;
-  };
+// Tiny deterministic LCG. State lives on the OrderBook instance (not a
+// closure) so save/load can preserve it; otherwise reloading mid-game
+// rerolls the next refresh from a fresh seed and breaks determinism.
+const LCG_INITIAL_SEED = 1;
+
+export interface OrderBookSnapshot {
+  orders: NpcOrder[];
+  nextRefreshSec: number;
+  rngSeed: number;
+  rotationOffset: Record<string, number>;
 }
 
 export class OrderBook {
   private orders: NpcOrder[] = [];
   private nextRefreshSec: number;
   private readonly listeners = new Set<OrderListener>();
-  private rng = lcg(1);
+  // Seed walks one step per random draw via stepRng(). Initial value
+  // is restored on loadFromJSON so post-load refreshes match the
+  // sequence that would have happened without a save+load round-trip.
+  private rngSeed: number = LCG_INITIAL_SEED;
   private rotationOffset: Record<string, number> = {};
 
   constructor(initialNowSec = 0) {
@@ -111,13 +115,20 @@ export class OrderBook {
     return () => this.listeners.delete(listener);
   }
 
-  toJSON(): { orders: NpcOrder[]; nextRefreshSec: number } {
-    return { orders: [...this.orders], nextRefreshSec: this.nextRefreshSec };
+  toJSON(): OrderBookSnapshot {
+    return {
+      orders: [...this.orders],
+      nextRefreshSec: this.nextRefreshSec,
+      rngSeed: this.rngSeed,
+      rotationOffset: { ...this.rotationOffset },
+    };
   }
 
-  loadFromJSON(snapshot: { orders: NpcOrder[]; nextRefreshSec: number }): void {
+  loadFromJSON(snapshot: OrderBookSnapshot): void {
     this.orders = [...snapshot.orders];
     this.nextRefreshSec = snapshot.nextRefreshSec;
+    this.rngSeed = snapshot.rngSeed;
+    this.rotationOffset = { ...snapshot.rotationOffset };
     this.fire();
   }
 
@@ -129,7 +140,7 @@ export class OrderBook {
         const itemIdx = (offset + slot) % npc.buys.length;
         const itemId = npc.buys[itemIdx] as ItemId;
         const span = npc.maxQuantity - npc.minQuantity;
-        const quantity = npc.minQuantity + Math.floor(this.rng() * (span + 1));
+        const quantity = npc.minQuantity + Math.floor(this.stepRng() * (span + 1));
         this.orders.push({
           npcId: npc.id,
           itemId,
@@ -141,6 +152,13 @@ export class OrderBook {
       this.rotationOffset[npc.id] = (offset + 1) % npc.buys.length;
     }
     this.fire();
+  }
+
+  // Step the LCG one tick and return a [0, 1) sample. State persists across
+  // save/load via toJSON/loadFromJSON so the stream is reproducible.
+  private stepRng(): number {
+    this.rngSeed = (this.rngSeed * 1664525 + 1013904223) | 0;
+    return ((this.rngSeed >>> 16) & 0x7fff) / 0x8000;
   }
 
   private fire(): void {
