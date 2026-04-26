@@ -48,8 +48,17 @@ describe("entity persistence round-trip", () => {
     const r = deserializeEntity(serializeEntity(m)) as Mount;
     expect(r).toBeInstanceOf(Mount);
     expect(r.species).toBe("horse");
-    // Mount-specific runtime state (ridden/riderId) starts fresh on load.
+    // Idle mount round-trips with its default runtime state intact.
     expect(r.ridden).toBe(false);
     expect(r.riderId).toBeNull();
+  });
+
+  test("mount preserves ridden state across save/load", () => {
+    const m = new Mount(9, { chunkX: 0, chunkY: 0, localX: 0, localY: 0 }, "horse", { x: 2, y: 2 });
+    m.ridden = true;
+    m.riderId = 42;
+    const r = deserializeEntity(serializeEntity(m)) as Mount;
+    expect(r.ridden).toBe(true);
+    expect(r.riderId).toBe(42);
   });
 });

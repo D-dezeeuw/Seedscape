@@ -158,10 +158,16 @@ async function bootstrap(): Promise<void> {
   // on a fresh world; on load the saved nextRefreshSec drives the schedule).
   orders.tick(gameTimeSec);
 
-  // Fresh launch (no save) → drop the lonely settler near origin once
-  // chunk(0,0) is generated. Loaded saves restore them via applySnapshot.
+  // Fresh launch (no save) → drop the lonely settler near origin. We
+  // prime chunk(0,0) here because spawn polls peekChunk() until the
+  // chunk arrives, and chunks only load through chunkManager.update —
+  // which the rAF loop drives, but the rAF loop hasn't started yet.
+  // Awaiting the spawn here costs ~50-200ms of boot time but eliminates
+  // the visible "settlers pop in a few frames late" flicker on first
+  // launch (saved games skip this path entirely via applySnapshot).
   if (!existingSave) {
-    void spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
+    chunkManager.update({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
+    await spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
   }
 
   const detachControls = attachCameraControls(camera, canvas);

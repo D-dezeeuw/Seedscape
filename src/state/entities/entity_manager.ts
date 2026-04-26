@@ -20,6 +20,15 @@ export class EntityManager {
   private nextId = 1;
   private readonly entities = new Map<number, Entity>();
   private readonly listeners = new Set<EntityListener>();
+  // Pooled list used to snapshot the entity set at the start of each tick.
+  // Iterating Map.values() during ticks is fragile: a tick that adds or
+  // removes entities (Phase 7's job system spawns / despawns drone units,
+  // future death events) would mutate the live iterator and either re-tick
+  // a fresh entity this same frame, skip a removed one mid-iteration, or
+  // — worst case — read a removed entity. Snapshotting first decouples
+  // this frame's tick set from the next. Array reused across frames so
+  // there's no per-frame allocation in the steady state.
+  private readonly tickSnapshot: Entity[] = [];
 
   add(entity: Entity): void {
     if (this.entities.has(entity.id)) {
@@ -70,11 +79,25 @@ export class EntityManager {
   // typically the possessed avatar (its movement is driven by player
   // input, not its own AI). Separation still applies so the possessed
   // entity participates in soft-collide pushes.
+  //
+  // Iterates over a snapshot of the entity set so a tick that mutates
+  // entities (add/remove) doesn't observe its own changes — the new
+  // entity gets ticked next frame, the removed entity isn't ticked
+  // even if it was before the mutation point. Predictable, replayable.
   tick(ctx: EntityTickContext, skipId: number | null = null): void {
-    for (const e of this.entities.values()) {
+    const list = this.tickSnapshot;
+    list.length = 0;
+    for (const e of this.entities.values()) list.push(e);
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i] as Entity;
       if (skipId !== null && e.id === skipId) continue;
+      // Skip entities removed mid-tick — they're still in the snapshot
+      // but no longer in the live map, so ticking them would mutate a
+      // detached object.
+      if (!this.entities.has(e.id)) continue;
       e.tick(ctx);
     }
+    list.length = 0; // release references — entities held only briefly
     this.resolveSeparation(ctx);
   }
 

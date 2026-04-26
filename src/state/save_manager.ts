@@ -22,8 +22,10 @@ import type { PossessionController } from "./possession";
 // 5 → 6 (Phase 6 cleanup): OrderBook snapshot now carries rngSeed +
 //   rotationOffset so post-load refreshes match the sequence that
 //   would have run without a save/load round-trip.
+// 6 → 7 (Phase 5 cleanup): Mount snapshot persists ridden + riderId so
+//   saving mid-ride doesn't silently dismount the rider on load.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export interface SavedChunk {
   chunkX: number;

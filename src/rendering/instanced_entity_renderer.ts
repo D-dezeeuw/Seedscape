@@ -45,6 +45,10 @@ export class InstancedEntityRenderer {
   };
   private capacity = INITIAL_CAPACITY;
   private cpuBuffer = new Float32Array(INITIAL_CAPACITY * FLOATS_PER_ENTITY);
+  // Reused across draw() calls so the per-frame z-sort doesn't allocate a
+  // fresh array (length grows with entity count; reset to 0 each frame
+  // without releasing the backing storage).
+  private readonly sortScratch: Entity[] = [];
 
   constructor(gl: WebGL2RenderingContext, tileSize: number) {
     this.gl = gl;
@@ -105,10 +109,11 @@ export class InstancedEntityRenderer {
     selectedId: number | null = null,
     possessedId: number | null = null,
   ): void {
-    // Z-sort by worldY so south-most draws last (on top). Cheap with
-    // ≤16 entities; needed once we ship more than one so they don't
-    // clip in the wrong order when overlapping.
-    const sorted: Entity[] = [];
+    // Z-sort by worldY so south-most draws last (on top). The scratch
+    // array is reused across frames; .length=0 keeps its allocated
+    // backing so push() steady-state allocates nothing.
+    const sorted = this.sortScratch;
+    sorted.length = 0;
     for (const e of entities) sorted.push(e);
     sorted.sort((a, b) => a.worldY() - b.worldY());
 

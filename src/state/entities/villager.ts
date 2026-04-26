@@ -65,6 +65,7 @@ export class Villager extends LivingEntity {
       this.wanderTargetY,
       WALK_SPEED_TILES_PER_SEC,
       ctx.dt,
+      ctx.isWalkable,
     );
     if (remaining > ARRIVE_EPSILON) return;
 

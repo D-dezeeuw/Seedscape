@@ -126,7 +126,20 @@ export abstract class LivingEntity extends Entity {
   // targetWorldY) at `speed` tiles/sec, advancing by `dt` seconds. Updates
   // facing to match the dominant axis of motion. Returns the remaining
   // distance after the step (0 means arrived this frame).
-  moveToward(targetWorldX: number, targetWorldY: number, speed: number, dt: number): number {
+  //
+  // When `isWalkable` is supplied, blocks movement onto an unwalkable tile
+  // and returns 0 so the AI sees this as "arrived" and idles + picks a
+  // new target on the next tick — without this guard the wander path
+  // ignores terrain and clips through water/buildings between the entity
+  // and a target on the other side. Callers that don't want walkability
+  // checks (e.g. tests) can omit the parameter for the legacy behavior.
+  moveToward(
+    targetWorldX: number,
+    targetWorldY: number,
+    speed: number,
+    dt: number,
+    isWalkable?: (worldTileX: number, worldTileY: number) => boolean,
+  ): number {
     const wx = this.worldX();
     const wy = this.worldY();
     const dx = targetWorldX - wx;
@@ -134,8 +147,13 @@ export abstract class LivingEntity extends Entity {
     const dist = Math.hypot(dx, dy);
     if (dist < 1e-4) return 0;
     const step = Math.min(dist, speed * dt);
-    this.setWorldPosition(wx + (dx / dist) * step, wy + (dy / dist) * step);
+    const nx = wx + (dx / dist) * step;
+    const ny = wy + (dy / dist) * step;
+    // Update facing first so a blocked entity still visibly turns toward
+    // its target — same convention as moveCardinal.
     this.facing = pickFacing(dx, dy);
+    if (isWalkable && !isWalkable(Math.floor(nx), Math.floor(ny))) return 0;
+    this.setWorldPosition(nx, ny);
     return Math.max(0, dist - step);
   }
 }

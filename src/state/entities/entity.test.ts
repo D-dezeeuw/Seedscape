@@ -87,6 +87,44 @@ describe("Entity.facedTile", () => {
   });
 });
 
+describe("LivingEntity.moveToward walkability gate", () => {
+  test("blocked next tile: position stays, facing still updates, returns 0 (treat as arrived)", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_NORTH,
+    );
+    // Target one tile east; isWalkable says no for any tile right of x=4.
+    const isWalkable = (tx: number, _ty: number): boolean => tx <= 4;
+    const remaining = v.moveToward(7.5, 4.5, 4, 0.5, isWalkable);
+    expect(v.worldX()).toBe(4.5); // didn't move
+    expect(v.facing).toBe(FACING_EAST); // facing turned regardless
+    expect(remaining).toBe(0); // signals "arrived" so AI picks a new target
+  });
+
+  test("walkable next tile: moves normally", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    const remaining = v.moveToward(7.5, 4.5, 4, 0.5, () => true);
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+    expect(remaining).toBeGreaterThan(0); // still 1 tile to go
+  });
+
+  test("legacy call without isWalkable preserves prior behavior", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    // No walkability arg → moves through whatever's there (legacy).
+    v.moveToward(10.5, 4.5, 4, 0.5);
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+  });
+});
+
 describe("LivingEntity.moveCardinal", () => {
   const ALWAYS = () => true;
   const NEVER = () => false;
