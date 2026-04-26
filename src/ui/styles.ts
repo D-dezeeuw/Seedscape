@@ -72,10 +72,32 @@ export function injectUiStyles(): void {
       max-width: 480px;
       max-height: calc(100vh - 160px);
     }
+    /* Debug window pops above its floating trigger button (bottom-right),
+       not above the toolbar — debug is dev-only and lives outside the
+       game UI flow. */
     .ss-window.ss-debug {
+      bottom: 56px;
+      right: 8px;
+      left: auto;
+      transform: none;
+      min-width: 200px;
+      max-width: 260px;
       border-color: rgba(232, 196, 104, 0.4);
     }
     .ss-window.ss-debug h3 { color: #e8c468; }
+    .ss-debug-fab {
+      position: fixed;
+      bottom: 8px;
+      right: 8px;
+      z-index: 10;
+      border-color: rgba(232, 196, 104, 0.4);
+      color: #e8c468;
+    }
+    .ss-debug-fab.ss-active {
+      background: #6b5520;
+      border-color: #e8c468;
+      color: #fff;
+    }
 
     /* Bottom-center double toolbar. */
     .ss-toolbar-stack {
@@ -107,7 +129,7 @@ export function injectUiStyles(): void {
       color: #e8eaed;
       border: 1px solid rgba(255,255,255,0.1);
       padding: 6px 10px;
-      font: inherit;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       border-radius: 4px;
       cursor: pointer;
     }

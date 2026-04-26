@@ -174,15 +174,30 @@ async function bootstrap(): Promise<void> {
     { id: "shop", label: "Shop", window: shopWindow },
     { id: "settings", label: "Settings", window: settingsWindow },
   ];
-  if (debugWindow) {
-    toolbarWindows.push({ id: "debug", label: "Debug", window: debugWindow });
-  }
 
   const detachToolbar = createToolbar({
     parent: document.body,
     tool,
     windows: toolbarWindows,
   });
+
+  // Dev-only debug window has its own floating trigger button in the
+  // bottom-right corner, separate from the gameplay toolbar.
+  let detachDebugButton: () => void = () => {};
+  if (debugWindow) {
+    const fab = document.createElement("button");
+    fab.className = "ss-btn ss-debug-fab";
+    fab.textContent = "Debug";
+    fab.addEventListener("click", () => debugWindow.toggle());
+    document.body.appendChild(fab);
+    const offChange = debugWindow.onChange((open) => {
+      fab.classList.toggle("ss-active", open);
+    });
+    detachDebugButton = () => {
+      offChange();
+      fab.remove();
+    };
+  }
 
   // Surface level-ups to the player. Listing the new unlocks gives the
   // notification something specific to say.
@@ -296,6 +311,7 @@ async function bootstrap(): Promise<void> {
       detachHud();
       detachInfo();
       detachToolbar();
+      detachDebugButton();
       inventoryWindow.destroy();
       ordersWindow.destroy();
       shopWindow.destroy();
