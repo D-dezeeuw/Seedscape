@@ -17,7 +17,12 @@
 // neighbor heights, force rocky_outcrop above a gradient threshold.
 
 import { createNoise2D, domainWarp, fbm2, type Noise2D } from "../shared/noise";
-import { bloomridgeTile, MOISTURE_BANDS, quantizeNoise, TERRAIN_BANDS } from "./biomes/bloomridge";
+import {
+  bloomridgeTile,
+  MOISTURE_BANDS,
+  quantizeNoise,
+  terrainBandFromHeight,
+} from "./biomes/bloomridge";
 import { allocChunkData, CHUNK_SIZE, type ChunkData, tileIndex } from "./chunk";
 
 // Tile-space scales. Terrain features are larger than moisture features
@@ -103,7 +108,11 @@ export function generateChunk(
       const worldX = baseX + x;
       const h = sampleHeight(noise, worldX, worldY);
       const m = sampleMoisture(noise, worldX, worldY);
-      const terrainBand = quantizeNoise(h, TERRAIN_BANDS);
+      // Terrain uses non-uniform thresholds to claw back the band-0
+      // (deep water) slice that even-split bands gave away to fBm's
+      // thin tails. Moisture stays on even bands — only 4 of them, so
+      // the skew doesn't visibly matter.
+      const terrainBand = terrainBandFromHeight(h);
       const moistureBand = quantizeNoise(m, MOISTURE_BANDS);
       const idx = tileIndex(x, y);
       chunk.tileId[idx] = bloomridgeTile(terrainBand, moistureBand);
