@@ -117,6 +117,22 @@ export function injectUiStyles(): void {
       color: #fff;
     }
 
+    /* Exit-possession FAB. Bottom-left so it doesn't overlap the
+       debug FAB; only visible while a possession is active. Cyan to
+       match the possessed-entity ring. */
+    .ss-exit-possess-fab {
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      z-index: 10;
+      border-color: rgba(116, 200, 232, 0.55);
+      color: #74c8e8;
+    }
+    .ss-exit-possess-fab:hover {
+      background: rgba(116, 200, 232, 0.16);
+      color: #c8e9f7;
+    }
+
     /* Bottom-center double toolbar. */
     .ss-toolbar-stack {
       position: fixed;

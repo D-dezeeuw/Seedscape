@@ -134,6 +134,8 @@ async function bootstrap(): Promise<void> {
   // `tick` so save/load can preserve it across sessions.
   let gameTimeSec = 0;
 
+  const possession = new PossessionController();
+
   const saveManager = new SaveManager({
     io: ioClient,
     worldSeed: WORLD_SEED,
@@ -143,6 +145,7 @@ async function bootstrap(): Promise<void> {
     chunkManager,
     orders,
     entityManager,
+    possession,
     gameTimeSec: () => gameTimeSec,
   });
 
@@ -165,7 +168,6 @@ async function bootstrap(): Promise<void> {
   const tool = new ToolState();
   const toaster = createToaster(document.body);
 
-  const possession = new PossessionController();
   const inputRouter = new InputRouter();
   const detachInputRouter = attachInputRouter(inputRouter, window);
   const detachActionKey = attachActionKey({
@@ -280,6 +282,21 @@ async function bootstrap(): Promise<void> {
     parent: document.body,
     tool,
     windows: toolbarWindows,
+  });
+
+  // Exit-possession FAB. Mirrors ESC for touch users + makes the
+  // current mode visually obvious. Hidden in god mode; shown while
+  // possessing.
+  const exitFab = document.createElement("button");
+  exitFab.className = "ss-btn ss-exit-possess-fab";
+  exitFab.textContent = "Exit possession";
+  exitFab.style.display = "none";
+  exitFab.addEventListener("click", () => {
+    if (possession.isPossessing()) possession.exit();
+  });
+  document.body.appendChild(exitFab);
+  const detachExitFabSub = possession.subscribe((snap) => {
+    exitFab.style.display = snap.mode === "possess" ? "" : "none";
   });
 
   // Dev-only debug window has its own floating trigger button in the
@@ -454,7 +471,12 @@ async function bootstrap(): Promise<void> {
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
-    entityRenderer.draw(entityManager.iterate(), camera.viewProjection, selectedEntityId);
+    entityRenderer.draw(
+      entityManager.iterate(),
+      camera.viewProjection,
+      selectedEntityId,
+      possession.entity?.id ?? null,
+    );
     entityLabels.update(entityManager.iterate(), camera, canvas.clientWidth, canvas.clientHeight);
     facedReticle.update(
       possession,
@@ -479,6 +501,8 @@ async function bootstrap(): Promise<void> {
       detachInputRouter();
       detachActionKey();
       detachPossession();
+      detachExitFabSub();
+      exitFab.remove();
       detachInteraction();
       detachHud();
       detachInfo();

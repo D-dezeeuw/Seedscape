@@ -103,6 +103,7 @@ export class InstancedEntityRenderer {
     entities: Iterable<Entity>,
     viewProjection: Float32Array,
     selectedId: number | null = null,
+    possessedId: number | null = null,
   ): void {
     // Z-sort by worldY so south-most draws last (on top). Cheap with
     // ≤16 entities; needed once we ship more than one so they don't
@@ -124,10 +125,11 @@ export class InstancedEntityRenderer {
       this.cpuBuffer[off + 2] = c[0];
       this.cpuBuffer[off + 3] = c[1];
       this.cpuBuffer[off + 4] = c[2];
-      // Pack facing (low 2 bits) + selected flag (bit 2) into one float.
-      // Decoder lives in entity_shaders.ts.
+      // Pack facing (low 2 bits) + selected (bit 2) + possessed (bit 3)
+      // into one float. Decoder lives in entity_shaders.ts.
       const selected = e.id === selectedId ? 1 : 0;
-      this.cpuBuffer[off + 5] = e.facing | (selected << 2);
+      const possessed = e.id === possessedId ? 1 : 0;
+      this.cpuBuffer[off + 5] = e.facing | (selected << 2) | (possessed << 3);
     }
 
     const gl = this.gl;
