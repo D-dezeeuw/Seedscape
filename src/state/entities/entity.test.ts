@@ -87,6 +87,56 @@ describe("Entity.facedTile", () => {
   });
 });
 
+describe("LivingEntity.moveCardinal", () => {
+  const ALWAYS = () => true;
+  const NEVER = () => false;
+
+  test("zero vector: no movement, no facing change", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 },
+      "T",
+      { x: 0, y: 0 },
+      FACING_NORTH,
+    );
+    v.moveCardinal(0, 0, 4, 0.1, ALWAYS);
+    expect(v.worldX()).toBe(4.5);
+    expect(v.worldY()).toBe(4.5);
+    expect(v.facing).toBe(FACING_NORTH);
+  });
+
+  test("east step advances +X and faces east", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(1, 0, 4, 0.5, ALWAYS); // 4 * 0.5 = 2 tiles
+    expect(v.worldX()).toBeCloseTo(6.5, 5);
+    expect(v.worldY()).toBe(4.5);
+    expect(v.facing).toBe(FACING_EAST);
+  });
+
+  test("south step (+Y per codebase convention) advances +Y", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(0, 1, 4, 0.5, ALWAYS);
+    expect(v.worldY()).toBeCloseTo(6.5, 5);
+    expect(v.facing).toBe(FACING_SOUTH);
+  });
+
+  test("blocked destination: facing still updates, position does not", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 4.5, localY: 4.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    v.moveCardinal(1, 0, 4, 0.5, NEVER);
+    expect(v.worldX()).toBe(4.5);
+    expect(v.facing).toBe(FACING_EAST);
+  });
+});
+
 describe("LivingEntity needs/memory slots", () => {
   test("needs initialize full", () => {
     const n = makeFullNeeds();

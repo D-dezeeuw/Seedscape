@@ -69,6 +69,29 @@ describe("EntityManager", () => {
     expect(n).toBe(2);
   });
 
+  test("tick(skipId) skips that entity's own tick but still runs others + separation", () => {
+    const m = new EntityManager();
+    let aTicks = 0;
+    let bTicks = 0;
+    const a = makeVillager(1, "A", 4.0, 4.0);
+    const b = makeVillager(2, "B", 4.0, 4.0);
+    a.tick = () => {
+      aTicks++;
+    };
+    b.tick = () => {
+      bTicks++;
+    };
+    m.add(a);
+    m.add(b);
+    m.tick({ time: 0, dt: 0, worldSeed: 1, isWalkable: () => true }, 1);
+    expect(aTicks).toBe(0);
+    expect(bTicks).toBe(1);
+    // Separation still ran — A and B are exactly overlapping so should
+    // have been pushed apart.
+    const dist = Math.hypot(a.worldX() - b.worldX(), a.worldY() - b.worldY());
+    expect(dist).toBeGreaterThan(0);
+  });
+
   test("tick visits every entity", () => {
     const m = new EntityManager();
     let calls = 0;

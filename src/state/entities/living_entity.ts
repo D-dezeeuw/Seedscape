@@ -98,6 +98,30 @@ export abstract class LivingEntity extends Entity {
     this.availableActions = [];
   }
 
+  // 4-cardinal step driven by an input vector (typically from
+  // InputRouter while possessed). Honors walkability so the player can't
+  // walk into water/buildings; updates facing per the input axis. Vector
+  // is treated as (-1|0|1) per axis — diagonals collapse to the dominant
+  // axis upstream, never here.
+  moveCardinal(
+    dx: number,
+    dy: number,
+    speed: number,
+    dt: number,
+    isWalkable: (worldTileX: number, worldTileY: number) => boolean,
+  ): void {
+    if (dx === 0 && dy === 0) return;
+    // Update facing first so the avatar visibly turns even when the
+    // destination tile is blocked.
+    if (dx !== 0) this.facing = dx > 0 ? FACING_EAST : FACING_WEST;
+    else this.facing = dy > 0 ? FACING_SOUTH : FACING_NORTH;
+    const step = speed * dt;
+    const nx = this.worldX() + dx * step;
+    const ny = this.worldY() + dy * step;
+    if (!isWalkable(Math.floor(nx), Math.floor(ny))) return;
+    this.setWorldPosition(nx, ny);
+  }
+
   // Walks the entity from its current position toward (targetWorldX,
   // targetWorldY) at `speed` tiles/sec, advancing by `dt` seconds. Updates
   // facing to match the dominant axis of motion. Returns the remaining

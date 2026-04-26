@@ -2,18 +2,21 @@ import { createGLContext, resizeCanvasToDisplaySize, WebGL2UnsupportedError } fr
 import { createFpsOverlay } from "./core/fps";
 import { Camera } from "./input/camera";
 import { attachCameraControls } from "./input/camera_controls";
+import { attachInputRouter, InputRouter } from "./input/input_router";
 import { attachTileInteraction } from "./input/tile_interaction";
 import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
+import { LivingEntity } from "./state/entities/living_entity";
 import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
+import { PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
@@ -50,6 +53,14 @@ const STREAM_MARGIN_CHUNKS = 2;
 const SIM_TICK_MS = 1000;
 const AUTOSAVE_MS = 30_000;
 const STARTING_WHEAT_SEEDS = 100;
+// Player avatar walk speed in tiles/sec when possessed. Tunable; matches
+// Phase 5's villager wander speed so the world's motion feels coherent
+// whether or not you're driving.
+const AVATAR_WALK_TILES_PER_SEC = 4;
+// God-mode keyboard pan speed in tiles/sec. A bit faster than walking so
+// surveying the map doesn't feel sluggish, slower than mouse drag so it
+// stays controllable.
+const GOD_PAN_TILES_PER_SEC = 10;
 // Production XP per output unit emitted by a building cycle. Keeps level
 // progression tied to actually running the chain, not just selling.
 const PRODUCTION_XP_PER_OUTPUT = 2;
@@ -152,6 +163,26 @@ async function bootstrap(): Promise<void> {
   const tool = new ToolState();
   const toaster = createToaster(document.body);
 
+  const possession = new PossessionController();
+  const inputRouter = new InputRouter();
+  const detachInputRouter = attachInputRouter(inputRouter, window);
+
+  // Camera follow + key reset on possession transitions. Subscribing
+  // here instead of inline at enter() means save-load triggered enters
+  // get the same wiring for free.
+  const detachPossession = possession.subscribe((snap) => {
+    if (snap.mode === "possess" && snap.entity) {
+      const ent = snap.entity;
+      camera.panTo(ent.worldX(), ent.worldY());
+      camera.followEntity(() => ({ x: ent.worldX(), y: ent.worldY() }));
+    } else {
+      camera.unfollow();
+      // Drop any keys the player was holding when possession ended —
+      // otherwise W still drives the camera in god mode.
+      inputRouter.clear();
+    }
+  });
+
   // Currently-selected entity id — drives the in-world selection ring.
   // Null when nothing is selected.
   let selectedEntityId: number | null = null;
@@ -159,8 +190,9 @@ async function bootstrap(): Promise<void> {
   const personWindow = createPersonWindow({
     parent: document.body,
     onPossess: (entity) => {
+      possession.enter(entity);
       const label = entity instanceof Villager ? entity.name : entity.type;
-      toaster.show(`Possessing ${label} — coming next phase`);
+      toaster.show(`Possessing ${label} — press ESC to release`);
     },
     onShow: (entity) => {
       selectedEntityId = entity.id;
@@ -169,6 +201,15 @@ async function bootstrap(): Promise<void> {
       selectedEntityId = null;
     },
   });
+
+  // ESC releases possession. Step 9 will route ESC through a priority
+  // chain (close window → exit possession); for now this is the bare
+  // bones so the player can always get out.
+  const onEscKey = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape") return;
+    if (possession.isPossessing()) possession.exit();
+  };
+  window.addEventListener("keydown", onEscKey);
 
   const detachInteraction = attachTileInteraction({
     canvas,
@@ -337,7 +378,35 @@ async function bootstrap(): Promise<void> {
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
+
+    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
+    lastFrameMs = timestampMs;
+
+    // Movement input — routes to the avatar in possess mode, to the
+    // camera in god mode. Last-pressed-axis-wins is enforced upstream by
+    // InputRouter so this is always strictly 4-cardinal.
+    const move = inputRouter.vector();
+    const possessed = possession.entity;
+    if (possession.isPossessing() && possessed instanceof LivingEntity) {
+      possessed.moveCardinal(
+        move.dx,
+        move.dy,
+        AVATAR_WALK_TILES_PER_SEC,
+        dt,
+        isWalkableTile,
+      );
+    } else if (move.dx !== 0 || move.dy !== 0) {
+      // God-mode pan. Cancel any active panTo so keyboard input feels
+      // immediate and treat the input as a "drag" so a follow we set up
+      // earlier (e.g. before a save/load) pauses correctly.
+      camera.cancelAnimation();
+      camera.x += move.dx * GOD_PAN_TILES_PER_SEC * dt;
+      camera.y += move.dy * GOD_PAN_TILES_PER_SEC * dt;
+      camera.notifyDragInput(timestampMs);
+    }
+
     camera.tickAnimation(timestampMs);
+    camera.tickFollow(timestampMs);
     camera.updateViewProjection(canvas.clientWidth, canvas.clientHeight);
 
     const rect = visibleChunkRect(
@@ -353,15 +422,17 @@ async function bootstrap(): Promise<void> {
 
     // Entity tick — main thread, every frame, with elapsed dt. Cheap at
     // MVP scale (≤16 entities). When count grows, batch into a fixed-step
-    // accumulator for determinism.
-    const dt = Math.min(0.1, (timestampMs - lastFrameMs) / 1000);
-    lastFrameMs = timestampMs;
-    entityManager.tick({
-      time: gameTimeSec,
-      dt,
-      worldSeed: WORLD_SEED,
-      isWalkable: isWalkableTile,
-    });
+    // accumulator for determinism. Skip the possessed avatar so its
+    // wander AI doesn't fight player input.
+    entityManager.tick(
+      {
+        time: gameTimeSec,
+        dt,
+        worldSeed: WORLD_SEED,
+        isWalkable: isWalkableTile,
+      },
+      possessed?.id ?? null,
+    );
 
     overlay.setChunkCount(renderer.chunkCount);
     overlay.setTileCount(renderer.tileCount);
@@ -382,7 +453,10 @@ async function bootstrap(): Promise<void> {
     () => {
       window.clearInterval(simInterval);
       window.clearInterval(saveInterval);
+      window.removeEventListener("keydown", onEscKey);
       detachControls();
+      detachInputRouter();
+      detachPossession();
       detachInteraction();
       detachHud();
       detachInfo();

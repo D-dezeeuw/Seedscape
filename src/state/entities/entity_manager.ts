@@ -66,8 +66,15 @@ export class EntityManager {
     return this.entities.size;
   }
 
-  tick(ctx: EntityTickContext): void {
-    for (const e of this.entities.values()) e.tick(ctx);
+  // skipId names an entity whose AI tick should NOT run this frame —
+  // typically the possessed avatar (its movement is driven by player
+  // input, not its own AI). Separation still applies so the possessed
+  // entity participates in soft-collide pushes.
+  tick(ctx: EntityTickContext, skipId: number | null = null): void {
+    for (const e of this.entities.values()) {
+      if (skipId !== null && e.id === skipId) continue;
+      e.tick(ctx);
+    }
     this.resolveSeparation(ctx);
   }
 
