@@ -39,7 +39,7 @@ const MOISTURE_OCTAVES = 3;
 
 // Warp strength in *tile-space units before scaling*. Tuned by eye to
 // give organic shorelines without obliterating the recognizable shapes.
-const WARP_STRENGTH = 24;
+const WARP_STRENGTH = 14;
 
 // Four uncorrelated seeds derived from worldSeed. Bit patterns are
 // arbitrary primes — what matters is that they're stable across runs.

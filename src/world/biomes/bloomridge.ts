@@ -33,18 +33,20 @@ export function quantizeNoise(value: number, bands: number): number {
 // narrower distribution than the [0, 1] envelope suggests: at the live
 // world seed roughly 99% of values fall in [0.20, 0.85]. Thresholds
 // below are tuned against that empirical histogram so each band gets
-// a meaningful slice of actual tiles, not just nominal range.
+// a meaningful slice of actual tiles, not just nominal range. Values
+// favor a green farming biome with distinct shorelines and only a
+// little exposed rock at the highest peaks.
 //
 //   Threshold (cum)  Band                        ≈ % of tiles
-//   < 0.27           0  deep water                   ~5%
-//   < 0.32           1  shallow water                ~8%
-//   < 0.36           2  beach                        ~5%
-//   < 0.43           3  rich soil / dry grass       ~22%
-//   < 0.55           4  farmland untilled           ~25%
-//   < 0.62           5  dry grass                   ~14%
-//   < 0.68           6  barren stone                ~10%
-//   ≥ 0.68           7  rocky outcrop               ~10%
-export const TERRAIN_THRESHOLDS: ReadonlyArray<number> = [0.27, 0.32, 0.36, 0.43, 0.55, 0.62, 0.68];
+//   < 0.27           0  deep water                   ~4%
+//   < 0.32           1  shallow water               ~10%
+//   < 0.36           2  beach                       ~10%
+//   < 0.40           3  rich soil / dry grass       ~13%
+//   < 0.53           4  farmland untilled           ~25%
+//   < 0.67           5  dry grass                   ~30%
+//   < 0.73           6  barren stone                 ~5%
+//   ≥ 0.73           7  rocky outcrop                ~3%
+export const TERRAIN_THRESHOLDS: ReadonlyArray<number> = [0.27, 0.32, 0.36, 0.4, 0.53, 0.67, 0.73];
 
 // Map a [-1, 1] noise value to a terrain band [0..7] via TERRAIN_THRESHOLDS.
 // Returns the index of the first threshold the normalized value falls below;
