@@ -44,6 +44,14 @@ export interface ChunkManagerOptions {
   hooks?: ChunkManagerHooks;
 }
 
+export interface UpdateOptions {
+  // Chunks that must keep simulating even when not visible. Typically
+  // the chunks containing live entities. Pinned via the cache keep set
+  // (no eviction) and via a generation request when not yet loaded.
+  // No GPU upload happens for these — they're sim-only.
+  simKeepSet?: ReadonlySet<string>;
+}
+
 // Parsed chunkKey back to (chunkX, chunkY). Format is "<x>,<y>" — see coords.ts.
 function parseChunkKey(key: string): [number, number] {
   const comma = key.indexOf(",");
@@ -55,7 +63,14 @@ export class ChunkManager {
   private readonly renderer: InstancedTileRenderer;
   private readonly cache: ChunkCache<ChunkRecord>;
   private readonly inFlight = new Set<string>();
+  // Cache-protection set. Union of the render rect and the sim-only
+  // pin set passed by the caller. Eviction skips any key in this set.
   private currentKeepSet = new Set<string>();
+  // Just the render rect from the most recent update(). Used by the
+  // async generation callback to decide whether to upload a freshly
+  // arrived chunk to the GPU — sim-only pins must NOT trigger uploads
+  // (they're off-screen by definition).
+  private currentRenderKeepSet = new Set<string>();
   private readonly hooks: ChunkManagerHooks;
   // Single Float32Array reused for every uploadToGpu call. buildInstanceBuffer
   // writes into it in place; the renderer copies it into the GPU buffer
@@ -139,20 +154,49 @@ export class ChunkManager {
     if (record) record.flags &= ~CHUNK_FLAG_DIRTY_SIMULATION;
   }
 
-  update(rect: ChunkRect): void {
-    const keepSet = new Set<string>();
+  // Per-frame update.
+  //
+  // `rect` is the *render* keep set: chunks the camera can see. They get
+  // GPU buffers + walkability masks + entry in the LRU cache.
+  //
+  // `opts.simKeepSet` is the *sim-only* keep set: chunks that must keep
+  // ticking even when off-screen (typically the chunks containing live
+  // entities). They get a cache slot + walkability mask but no GPU
+  // upload. Settlers in distant farms keep working while the camera
+  // is elsewhere — entity ticks are main-thread and don't depend on
+  // visibility, but pathfinding does, so the mask MUST stay live.
+  //
+  // Cache protection unions both sets; eviction can only target chunks
+  // that are neither rendered nor sim-pinned.
+  update(rect: ChunkRect, opts: UpdateOptions = {}): void {
+    const renderKeepSet = new Set<string>();
     for (let cy = rect.minY; cy < rect.maxY; cy++) {
       for (let cx = rect.minX; cx < rect.maxX; cx++) {
-        keepSet.add(chunkKey(cx, cy));
+        renderKeepSet.add(chunkKey(cx, cy));
       }
     }
-    this.currentKeepSet = keepSet;
+    // Cache protection: render set ∪ sim set. Reused as `currentKeepSet`
+    // for any cache.set inside this frame's requestGeneration callbacks
+    // (those run async; by the time they fire `currentKeepSet` will have
+    // moved on, but the protection is still correct because the sim
+    // set's contents converge on the live entity set).
+    this.currentRenderKeepSet = renderKeepSet;
+    if (opts.simKeepSet && opts.simKeepSet.size > 0) {
+      // Build a fresh union so the rect set isn't mutated. Cheap; sim
+      // set is bounded by the entity count.
+      const union = new Set(renderKeepSet);
+      for (const k of opts.simKeepSet) union.add(k);
+      this.currentKeepSet = union;
+    } else {
+      this.currentKeepSet = renderKeepSet;
+    }
 
-    // Free GPU buffers for chunks no longer visible. CPU data stays in the
-    // LRU cache so a quick pan-back is a hit, no regeneration.
+    // Free GPU buffers for chunks no longer visible. CPU data stays in
+    // the LRU cache so a quick pan-back is a hit, no regeneration.
+    // Sim-only pinned chunks are never on the GPU in the first place.
     const toRemoveFromGpu: string[] = [];
     for (const key of this.renderer.chunkKeys()) {
-      if (!keepSet.has(key)) toRemoveFromGpu.push(key);
+      if (!renderKeepSet.has(key)) toRemoveFromGpu.push(key);
     }
     for (const key of toRemoveFromGpu) this.renderer.removeChunk(key);
 
@@ -175,6 +219,24 @@ export class ChunkManager {
         this.requestGeneration(key, cx, cy);
       }
     }
+
+    // Walk the sim-only keep set. Each chunk that isn't already
+    // loaded gets a generation request — without it, settlers spawned
+    // by save load (or that wandered off-screen on a freshly streamed
+    // chunk) would have no walkability mask and pathfinding would fail.
+    // We deliberately use cache.peek so the LRU order doesn't get
+    // promoted by the off-screen scan: if cache pressure pushes us
+    // toward eviction, we want recently-rendered chunks to lead, not
+    // sim-pinned ones (which the keep set already protects).
+    if (opts.simKeepSet) {
+      for (const key of opts.simKeepSet) {
+        if (renderKeepSet.has(key)) continue; // already handled above
+        if (this.cache.peek(key)) continue; // loaded; keep set protects
+        if (this.inFlight.has(key)) continue;
+        const [cx, cy] = parseChunkKey(key);
+        this.requestGeneration(key, cx, cy);
+      }
+    }
   }
 
   private uploadToGpu(key: string, data: ChunkData, chunkX: number, chunkY: number): void {
@@ -193,7 +255,10 @@ export class ChunkManager {
         // as protected so freshly visible chunks aren't evicted to make room.
         this.cache.set(key, makeChunkRecord(data, CHUNK_FLAG_DIRTY_RENDER), this.currentKeepSet);
         this.hooks.onChunkLoaded?.(chunkX, chunkY, data);
-        if (this.currentKeepSet.has(key) && !this.renderer.hasChunk(key)) {
+        // Only upload to GPU if the chunk is in the *render* rect.
+        // Sim-only pinned chunks (off-screen entity carriers) must
+        // not consume a GPU buffer slot.
+        if (this.currentRenderKeepSet.has(key) && !this.renderer.hasChunk(key)) {
           this.uploadToGpu(key, data, chunkX, chunkY);
           // Clear render dirty since we just uploaded.
           const rec = this.peekChunk(chunkX, chunkY);

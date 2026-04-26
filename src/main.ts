@@ -144,6 +144,10 @@ async function bootstrap(): Promise<void> {
   });
   const simulationPool = new SimulationPool();
   const ioClient = new IoClient();
+  // Reused per frame for the entity-chunk pin set passed to
+  // chunkManager.update. Pooling keeps the per-frame walk allocation-
+  // free in the steady state.
+  const entityChunkScratch = new Set<string>();
 
   const camera = new Camera();
   camera.x = 0;
@@ -599,7 +603,18 @@ async function bootstrap(): Promise<void> {
       TILE_WORLD_SIZE,
       STREAM_MARGIN_CHUNKS,
     );
-    chunkManager.update(rect);
+    // Pin chunks that hold live entities so the LRU cache can't evict
+    // them when the camera moves. Without this, off-screen settlers
+    // lose their walkability mask in the pathfinding worker and freeze
+    // in place — they tick fine on the main thread but every path
+    // request fails. The set is rebuilt every frame because entities
+    // can move between chunks; the walk is O(entities), trivial at 150.
+    // Pooled to avoid per-frame allocations in the steady state.
+    entityChunkScratch.clear();
+    for (const e of entityManager.iterate()) {
+      entityChunkScratch.add(chunkKey(e.chunkX, e.chunkY));
+    }
+    chunkManager.update(rect, { simKeepSet: entityChunkScratch });
 
     // Entity tick — main thread, every frame, with elapsed dt. Cheap at
     // MVP scale (≤16 entities). When count grows, batch into a fixed-step

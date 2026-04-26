@@ -11,9 +11,19 @@ import { mulberry32 } from "../../shared/rng";
 import type { EntityType } from "./entity";
 // Imported as a typed JSON module (resolveJsonModule). Vite copies the
 // file into the bundle at build time; no runtime fetch required.
-import namesData from "../../../data/names.json" with { type: "json" };
+import namesData from "../../../data/names.json";
 
-const HUMAN_FIRST_NAMES: ReadonlyArray<string> = namesData.first_names;
+// JSON shape: first_names is [name, gender][], surnames is string[].
+// We strip the gender tag for the basic pickName path; pickFullName
+// still composes a Firstname Surname combo. Gender lives in
+// HUMAN_FIRST_NAMES_WITH_GENDER for any future "match pronoun" UI.
+type GenderedName = readonly [string, "male" | "female"];
+const HUMAN_FIRST_NAMES_WITH_GENDER: ReadonlyArray<GenderedName> = (
+  namesData.first_names as ReadonlyArray<ReadonlyArray<string>>
+).map((entry) => [entry[0] ?? "Unnamed", (entry[1] ?? "male") as "male" | "female"] as const);
+const HUMAN_FIRST_NAMES: ReadonlyArray<string> = HUMAN_FIRST_NAMES_WITH_GENDER.map(
+  (entry) => entry[0],
+);
 const HUMAN_SURNAMES: ReadonlyArray<string> = namesData.surnames;
 
 const ANIMAL_NAMES: ReadonlyArray<string> = [
