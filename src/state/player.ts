@@ -37,15 +37,20 @@ export class Player {
     return this._level;
   }
 
+  // Setters validate (non-negative). Gameplay code should prefer addCoins
+  // / spendCoins / addXp; the bare setters are for the debug panel reset
+  // ("xp = 0") and future save migrations. Throwing on negative input
+  // means an upstream bug surfaces immediately instead of silently
+  // entering negative-balance state.
   set coins(value: number) {
+    if (value < 0) throw new Error(`Player.coins must be >= 0, got ${value}`);
     if (value === this._coins) return;
     this._coins = value;
     this.fire();
   }
 
-  // Direct setters retained for save load; gameplay code should use addXp
-  // / addCoins / spendCoins.
   set xp(value: number) {
+    if (value < 0) throw new Error(`Player.xp must be >= 0, got ${value}`);
     this.setXp(value);
   }
 
