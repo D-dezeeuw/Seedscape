@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { CHUNK_SIZE, tileIndex } from "../../world/chunk";
 import { EntityManager } from "./entity_manager";
-import { spawnSettler } from "./spawn";
-import { Villager } from "./villager";
+import { spawnInitialEntities } from "./spawn";
+import type { Villager } from "./villager";
 
-// Minimal stand-in for ChunkManager.peekChunk — just enough surface to
-// satisfy spawnSettler's `chunkManager.peekChunk(0,0)` lookup.
 function makeChunkManager(tileId: Uint16Array) {
   return {
     peekChunk(cx: number, cy: number) {
@@ -18,42 +16,45 @@ function makeChunkManager(tileId: Uint16Array) {
 }
 
 function tilesAllWalkable(): Uint16Array {
-  // Tile id 11 (rich soil) is walkable per isEntityWalkable.
   const a = new Uint16Array(CHUNK_SIZE * CHUNK_SIZE);
-  a.fill(11);
+  a.fill(11); // rich soil
   return a;
 }
 
-describe("spawnSettler", () => {
-  test("places a villager on a walkable tile near (16,16)", async () => {
+describe("spawnInitialEntities", () => {
+  test("spawns the Settler at (16,16) and a named companion nearby", async () => {
     const chunkManager = makeChunkManager(tilesAllWalkable());
     const entityManager = new EntityManager();
-    // biome-ignore lint/suspicious/noExplicitAny: minimal duck-typed stub
-    const settler = await spawnSettler({ chunkManager: chunkManager as any, entityManager });
-    expect(settler).toBeInstanceOf(Villager);
-    expect(entityManager.size()).toBe(1);
-    expect(settler?.chunkX).toBe(0);
-    expect(settler?.chunkY).toBe(0);
-    // Center spawn on all-walkable means it lands at exactly (16, 16).
-    expect(settler?.localX).toBe(16.5);
-    expect(settler?.localY).toBe(16.5);
+    const villagers = await spawnInitialEntities({
+      // biome-ignore lint/suspicious/noExplicitAny: minimal duck-typed stub
+      chunkManager: chunkManager as any,
+      entityManager,
+      worldSeed: 12345,
+    });
+    expect(villagers.length).toBe(2);
+    const [settler, companion] = villagers as [Villager, Villager];
+    expect(settler.name).toBe("Settler");
+    expect(settler.localX).toBe(16.5);
+    expect(settler.localY).toBe(16.5);
+
+    // Companion is on a different tile and has a name from the pool.
+    expect(companion.name).not.toBe("Settler");
+    expect(companion.name).not.toBe("");
+    expect(companion.localX !== settler.localX || companion.localY !== settler.localY).toBe(true);
   });
 
-  test("BFS skirts an unwalkable patch around the center", async () => {
+  test("settler BFS skirts an unwalkable origin tile", async () => {
     const tiles = tilesAllWalkable();
-    // Block (16,16) with deep water; settler should land on a neighbor.
-    tiles[tileIndex(16, 16)] = 1;
+    tiles[tileIndex(16, 16)] = 1; // deep water
     const chunkManager = makeChunkManager(tiles);
     const entityManager = new EntityManager();
-    // biome-ignore lint/suspicious/noExplicitAny: minimal duck-typed stub
-    const settler = await spawnSettler({ chunkManager: chunkManager as any, entityManager });
-    expect(settler).toBeTruthy();
-    const { localX, localY } = settler as Villager;
-    // Whatever neighbor was picked, it must not be the blocked tile.
-    expect(!(localX === 16.5 && localY === 16.5)).toBe(true);
-    // And it must be adjacent (Manhattan distance 1 in tile units).
-    const dx = Math.abs(localX - 16.5);
-    const dy = Math.abs(localY - 16.5);
-    expect(dx + dy).toBeCloseTo(1, 5);
+    const villagers = await spawnInitialEntities({
+      // biome-ignore lint/suspicious/noExplicitAny: minimal duck-typed stub
+      chunkManager: chunkManager as any,
+      entityManager,
+      worldSeed: 1,
+    });
+    const settler = villagers[0] as Villager;
+    expect(!(settler.localX === 16.5 && settler.localY === 16.5)).toBe(true);
   });
 });

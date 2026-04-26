@@ -99,21 +99,36 @@ export class InstancedEntityRenderer {
     this.vao = vao;
   }
 
-  draw(entities: Iterable<Entity>, viewProjection: Float32Array): void {
-    let count = 0;
-    for (const e of entities) {
-      if (count >= this.capacity) this.grow(this.capacity * 2);
-      const off = count * FLOATS_PER_ENTITY;
-      this.cpuBuffer[off] = e.worldX() + 0.5; // center on tile
+  draw(
+    entities: Iterable<Entity>,
+    viewProjection: Float32Array,
+    selectedId: number | null = null,
+  ): void {
+    // Z-sort by worldY so south-most draws last (on top). Cheap with
+    // ≤16 entities; needed once we ship more than one so they don't
+    // clip in the wrong order when overlapping.
+    const sorted: Entity[] = [];
+    for (const e of entities) sorted.push(e);
+    sorted.sort((a, b) => a.worldY() - b.worldY());
+
+    const count = sorted.length;
+    if (count === 0) return;
+    while (count > this.capacity) this.grow(this.capacity * 2);
+
+    for (let i = 0; i < count; i++) {
+      const e = sorted[i] as Entity;
+      const off = i * FLOATS_PER_ENTITY;
+      this.cpuBuffer[off] = e.worldX() + 0.5;
       this.cpuBuffer[off + 1] = e.worldY() + 0.5;
       const c = COLORS[e.type];
       this.cpuBuffer[off + 2] = c[0];
       this.cpuBuffer[off + 3] = c[1];
       this.cpuBuffer[off + 4] = c[2];
-      this.cpuBuffer[off + 5] = e.facing;
-      count++;
+      // Pack facing (low 2 bits) + selected flag (bit 2) into one float.
+      // Decoder lives in entity_shaders.ts.
+      const selected = e.id === selectedId ? 1 : 0;
+      this.cpuBuffer[off + 5] = e.facing | (selected << 2);
     }
-    if (count === 0) return;
 
     const gl = this.gl;
     gl.useProgram(this.program);

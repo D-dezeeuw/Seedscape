@@ -25,6 +25,11 @@ export interface PersonWindowApi {
 interface Deps {
   parent: HTMLElement;
   onPossess: (entity: Entity) => void;
+  // Fires when the panel becomes visible for an entity (used to drive
+  // the in-world selection highlight).
+  onShow?: (entity: Entity) => void;
+  // Fires when the panel hides — via × button, ESC, or another window.
+  onHide?: () => void;
 }
 
 // ---------- Section provider contract ----------
@@ -154,6 +159,13 @@ export function createPersonWindow(deps: Deps): PersonWindowApi {
 
   let current: Entity | null = null;
   const window_ = makeWindow(panel, () => {});
+  // Mirror window open/close into the optional callbacks. The toolbar
+  // and × button both go through window_.hide() so onChange catches
+  // every transition.
+  window_.onChange((open) => {
+    if (open && current) deps.onShow?.(current);
+    if (!open) deps.onHide?.();
+  });
 
   const renderSections = (e: Entity): void => {
     let html = "";

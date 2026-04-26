@@ -1,7 +1,9 @@
 // Placeholder entity sprite shader. Draws a colored disc with a small
-// "facing notch" so the player can read direction at a glance. No atlas
-// sample yet — real art lands in a later phase, at which point this
-// gets replaced with a textured-quad path that mirrors tile_shaders.
+// "facing notch" so the player can read direction at a glance, plus a
+// yellow rim when the entity is currently selected in the UI.
+//
+// Per-instance encoding: a_facing's low 2 bits = facing direction
+// (0=S, 1=W, 2=N, 3=E); bit 2 = selection flag.
 
 export const ENTITY_VERTEX_SOURCE = /* glsl */ `#version 300 es
 precision highp float;
@@ -9,7 +11,7 @@ precision highp float;
 in vec2  a_quadPos;     // [-0.5, 0.5] unit quad (per-vertex)
 in vec2  a_worldPos;    // entity world position (per-instance, sub-tile)
 in vec3  a_color;       // base body color (per-instance)
-in float a_facing;      // 0=S, 1=W, 2=N, 3=E (per-instance)
+in float a_facing;      // packed: facing in low 2 bits, selected in bit 2
 
 uniform mat4  u_viewProjection;
 uniform float u_tileSize;
@@ -17,13 +19,17 @@ uniform float u_tileSize;
 out vec2  v_uv;
 out vec3  v_color;
 flat out int v_facing;
+flat out int v_selected;
 
 void main() {
   vec2 worldPos = a_worldPos + a_quadPos * u_tileSize * 0.85;
   gl_Position = u_viewProjection * vec4(worldPos, 0.0, 1.0);
-  v_uv = a_quadPos;        // [-0.5, 0.5]
+  v_uv = a_quadPos;
   v_color = a_color;
-  v_facing = int(a_facing);
+
+  int packed = int(a_facing);
+  v_facing   = packed & 3;
+  v_selected = (packed >> 2) & 1;
 }
 `;
 
@@ -33,20 +39,19 @@ precision highp float;
 in  vec2 v_uv;
 in  vec3 v_color;
 flat in int v_facing;
+flat in int v_selected;
 
 out vec4 fragColor;
 
 void main() {
-  // Disc with anti-aliased edge.
   float r = length(v_uv);
   if (r > 0.5) discard;
 
-  // Body color, with a darker rim so the entity stands out against tiles.
+  // Body with darker rim for contrast.
   float rim = smoothstep(0.40, 0.50, r);
   vec3 body = mix(v_color, v_color * 0.55, rim);
 
-  // Facing notch — a small darker spot at the front of the body. World
-  // coords match chunkY-down, so south is +y in v_uv.
+  // Facing notch — small darker dot at the front.
   vec2 notchOffset;
   if      (v_facing == 0) notchOffset = vec2( 0.0,  0.28); // south
   else if (v_facing == 1) notchOffset = vec2(-0.28, 0.0);  // west
@@ -56,6 +61,12 @@ void main() {
   float notchDist = length(v_uv - notchOffset);
   float notch = smoothstep(0.12, 0.06, notchDist);
   body = mix(body, v_color * 0.25, notch);
+
+  // Selection ring: bright yellow band at the outer edge of the disc.
+  if (v_selected == 1) {
+    float ring = smoothstep(0.42, 0.48, r) * (1.0 - smoothstep(0.48, 0.50, r));
+    body = mix(body, vec3(1.0, 0.92, 0.45), ring);
+  }
 
   fragColor = vec4(body, 1.0);
 }

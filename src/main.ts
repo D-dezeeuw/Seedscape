@@ -8,7 +8,7 @@ import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
-import { spawnSettler } from "./state/entities/spawn";
+import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
@@ -17,6 +17,7 @@ import { Player } from "./state/player";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
+import { EntityLabels } from "./ui/entity_labels";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
@@ -144,18 +145,28 @@ async function bootstrap(): Promise<void> {
   // Fresh launch (no save) → drop the lonely settler near origin once
   // chunk(0,0) is generated. Loaded saves restore them via applySnapshot.
   if (!existingSave) {
-    void spawnSettler({ chunkManager, entityManager });
+    void spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
   }
 
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
   const toaster = createToaster(document.body);
 
+  // Currently-selected entity id — drives the in-world selection ring.
+  // Null when nothing is selected.
+  let selectedEntityId: number | null = null;
+
   const personWindow = createPersonWindow({
     parent: document.body,
     onPossess: (entity) => {
       const label = entity instanceof Villager ? entity.name : entity.type;
       toaster.show(`Possessing ${label} — coming next phase`);
+    },
+    onShow: (entity) => {
+      selectedEntityId = entity.id;
+    },
+    onHide: () => {
+      selectedEntityId = null;
     },
   });
 
@@ -172,6 +183,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const detachHud = createHud(document.body, player);
+  const entityLabels = new EntityLabels(document.body);
   const detachInfo = createTileInfo({
     parent: document.body,
     canvas,
@@ -357,7 +369,8 @@ async function bootstrap(): Promise<void> {
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
     renderer.draw(camera.viewProjection, t);
-    entityRenderer.draw(entityManager.iterate(), camera.viewProjection);
+    entityRenderer.draw(entityManager.iterate(), camera.viewProjection, selectedEntityId);
+    entityLabels.update(entityManager.iterate(), camera, canvas.clientWidth, canvas.clientHeight);
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -384,6 +397,7 @@ async function bootstrap(): Promise<void> {
       debugWindow?.destroy();
       detachLevelUp();
       toaster.destroy();
+      entityLabels.destroy();
       entityRenderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();

@@ -89,4 +89,33 @@ describe("EntityManager", () => {
     m.tick({ time: 0, dt: 0, worldSeed: 1, isWalkable: () => true });
     expect(calls).toBe(2);
   });
+
+  test("soft collision pushes overlapping entities apart", () => {
+    const m = new EntityManager();
+    const a = makeVillager(1, "A", 4.0, 4.0);
+    const b = makeVillager(2, "B", 4.0, 4.0); // exactly overlapping
+    m.add(a);
+    m.add(b);
+    // Stub each entity's tick so the separation pass is the only thing
+    // that moves them — keeps the assertion isolated.
+    a.tick = () => {};
+    b.tick = () => {};
+    m.tick({ time: 0, dt: 0, worldSeed: 1, isWalkable: () => true });
+    const dist = Math.hypot(a.worldX() - b.worldX(), a.worldY() - b.worldY());
+    expect(dist).toBeGreaterThan(0);
+  });
+
+  test("separation respects isWalkable — no push into blocked tiles", () => {
+    const m = new EntityManager();
+    const a = makeVillager(1, "A", 4.5, 4.5);
+    const b = makeVillager(2, "B", 4.7, 4.5); // nearly overlapping
+    m.add(a);
+    m.add(b);
+    a.tick = () => {};
+    b.tick = () => {};
+    const before = { ax: a.worldX(), ay: a.worldY(), bx: b.worldX(), by: b.worldY() };
+    m.tick({ time: 0, dt: 0, worldSeed: 1, isWalkable: () => false });
+    expect(a.worldX()).toBe(before.ax);
+    expect(b.worldX()).toBe(before.bx);
+  });
 });

@@ -178,6 +178,28 @@ export function injectUiStyles(): void {
       color: #5b9fc0;
       text-decoration: underline;
     }
+
+    /* Floating name labels above entities. Positioned per-frame from
+       world coords; pointer-events off so clicks pass through to the
+       canvas underneath. */
+    .ss-entity-labels {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 4;
+    }
+    .ss-entity-label {
+      position: absolute;
+      top: 0;
+      left: 0;
+      font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #f5f7fa;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 4px rgba(0, 0, 0, 0.6);
+      padding: 1px 5px;
+      white-space: nowrap;
+      user-select: none;
+      will-change: transform;
+    }
     .ss-row {
       display: flex; justify-content: space-between; gap: 8px;
       padding: 2px 0;
