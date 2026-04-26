@@ -7,6 +7,7 @@
 // Today's only behavior: a moveToward helper that updates position and
 // facing. Subclasses (Villager etc.) compose this into their tick logic.
 
+import type { Tool } from "../../input/tool";
 import {
   Entity,
   type EntityPosition,
@@ -16,6 +17,20 @@ import {
   FACING_WEST,
   type Facing,
 } from "./entity";
+
+// Action set a possessed entity can run via the action key. The Villager
+// default is the full toolset minus "none" (which is just pan / no-op). Other
+// living types ship empty until their phase wires them up — possession is
+// human-only in MVP per docs/21_vision_and_story.md.
+export const VILLAGER_AVAILABLE_ACTIONS: ReadonlyArray<Tool> = [
+  "till",
+  "plant",
+  "water",
+  "harvest",
+  "build",
+  "feed",
+  "dismantle",
+];
 
 // Six needs per docs/18 — each clamped 0..255. Initialized full so a
 // freshly-spawned entity isn't immediately critical.
@@ -62,6 +77,13 @@ export abstract class LivingEntity extends Entity {
   longTermMemory: LongTermEvent[];
   // Packed personality bits. Layout deferred — reserved as Uint8 for now.
   traits: number;
+  // True if this entity participates in the soft-collide separation pass.
+  // Buildings, parked mounts, etc. set false to act as fixed obstacles.
+  // Default true keeps Phase 5 behavior unchanged.
+  softCollide: boolean;
+  // Tools this entity can execute when possessed. Empty = read-only (e.g.
+  // a non-possessable creature, or an early animal class).
+  availableActions: ReadonlyArray<Tool>;
 
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
@@ -72,6 +94,8 @@ export abstract class LivingEntity extends Entity {
     this.shortTermHead = 0;
     this.longTermMemory = [];
     this.traits = 0;
+    this.softCollide = true;
+    this.availableActions = [];
   }
 
   // Walks the entity from its current position toward (targetWorldX,

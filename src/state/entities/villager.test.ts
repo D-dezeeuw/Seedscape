@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { EntityTickContext } from "./entity";
+import { VILLAGER_AVAILABLE_ACTIONS } from "./living_entity";
 import { Villager } from "./villager";
 
 const ALWAYS_WALKABLE: EntityTickContext["isWalkable"] = () => true;
@@ -9,6 +10,25 @@ function tickN(v: Villager, ticks: number, dt: number, worldSeed: number): void 
     v.tick({ time: i * dt, dt, worldSeed, isWalkable: ALWAYS_WALKABLE });
   }
 }
+
+describe("Villager capabilities", () => {
+  test("softCollide defaults to true", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    expect(v.softCollide).toBe(true);
+  });
+
+  test("availableActions matches VILLAGER_AVAILABLE_ACTIONS (full toolset minus pan)", () => {
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
+    expect(v.availableActions).toEqual(VILLAGER_AVAILABLE_ACTIONS);
+    expect(v.availableActions).not.toContain("none");
+  });
+});
 
 describe("Villager wander", () => {
   test("two villagers with the same id + seed walk identical paths", () => {

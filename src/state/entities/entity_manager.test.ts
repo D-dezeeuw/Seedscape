@@ -105,6 +105,23 @@ describe("EntityManager", () => {
     expect(dist).toBeGreaterThan(0);
   });
 
+  test("entities with softCollide=false skip the separation pass", () => {
+    const m = new EntityManager();
+    const a = makeVillager(1, "A", 4.0, 4.0);
+    const b = makeVillager(2, "B", 4.0, 4.0); // exactly overlapping
+    a.softCollide = false;
+    m.add(a);
+    m.add(b);
+    a.tick = () => {};
+    b.tick = () => {};
+    const before = { ax: a.worldX(), ay: a.worldY(), bx: b.worldX(), by: b.worldY() };
+    m.tick({ time: 0, dt: 0, worldSeed: 1, isWalkable: () => true });
+    expect(a.worldX()).toBe(before.ax);
+    expect(a.worldY()).toBe(before.ay);
+    expect(b.worldX()).toBe(before.bx);
+    expect(b.worldY()).toBe(before.by);
+  });
+
   test("separation respects isWalkable — no push into blocked tiles", () => {
     const m = new EntityManager();
     const a = makeVillager(1, "A", 4.5, 4.5);

@@ -82,8 +82,10 @@ export class EntityManager {
     }
     for (let i = 0; i < list.length; i++) {
       const a = list[i] as LivingEntity;
+      if (!a.softCollide) continue;
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j] as LivingEntity;
+        if (!b.softCollide) continue;
         const dx = a.worldX() - b.worldX();
         const dy = a.worldY() - b.worldY();
         const d = Math.hypot(dx, dy);

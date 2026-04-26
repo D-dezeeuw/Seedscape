@@ -14,7 +14,7 @@ import {
   FACING_SOUTH,
   type Facing,
 } from "./entity";
-import { LivingEntity } from "./living_entity";
+import { LivingEntity, VILLAGER_AVAILABLE_ACTIONS } from "./living_entity";
 
 const WALK_SPEED_TILES_PER_SEC = 4;
 const WANDER_RADIUS = 6;
@@ -50,6 +50,7 @@ export class Villager extends LivingEntity {
     this.name = name;
     this.homeWorldTileX = homeWorldTile.x;
     this.homeWorldTileY = homeWorldTile.y;
+    this.availableActions = VILLAGER_AVAILABLE_ACTIONS;
     // Initial target = current position. First tick will pick a real one.
     this.wanderTargetX = this.worldX();
     this.wanderTargetY = this.worldY();
