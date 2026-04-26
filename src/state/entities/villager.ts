@@ -7,6 +7,7 @@
 // villagers diverge and replays are reproducible.
 
 import { mulberry32 } from "../../shared/rng";
+import type { ItemId } from "../items";
 import {
   type EntityPosition,
   type EntityTickContext,
@@ -15,6 +16,8 @@ import {
   type Facing,
 } from "./entity";
 import { LivingEntity, VILLAGER_AVAILABLE_ACTIONS } from "./living_entity";
+import type { Gender } from "./names";
+import { VillagerJobController } from "./villager_jobs";
 
 const WALK_SPEED_TILES_PER_SEC = 4;
 const WANDER_RADIUS = 6;
@@ -24,20 +27,45 @@ const ARRIVE_EPSILON = 0.1;
 // Cap how many random tiles we try per pick before falling back to home.
 const PICK_ATTEMPTS = 8;
 
+// Water reserve: 0..MAX_WATER_RESERVE; refilled by HAUL_WATER, drained by
+// WATER_CROP. MAX is small so settlers actually have to walk back for refills
+// — that's the whole point of the haul job existing.
+export const MAX_WATER_RESERVE = 5;
+// Inventory cap: total items, summed across types. Settlers carry a few
+// crops between harvest and the nearest crate; not a backpack.
+export const MAX_CARRIED_ITEMS = 10;
+
 export class Villager extends LivingEntity {
   readonly type: EntityType = "villager";
 
   name: string;
+  // Gender pairs with the first name (data/names.json tags each entry).
+  // Default "male" so test fixtures + tools that build villagers
+  // without going through pickFullName don't need to specify; spawn
+  // sites always overwrite this with the value from pickFullName.
+  gender: Gender = "male";
   // Anchor point the wander AI loops around. Stored as world tile coords;
   // sub-tile target picked inside that tile's bounds.
   homeWorldTileX: number;
   homeWorldTileY: number;
+
+  // Water reserve in 0..MAX_WATER_RESERVE. Mutated by HAUL_WATER (refill at
+  // a water tile) and WATER_CROP (drain into a thirsty tile).
+  waterReserve: number = 0;
+  // Items the settler is carrying between harvest and crate. Keyed flat;
+  // matches Inventory's shape so any future "deposit all to inventory" path
+  // can reuse the same iteration. Total count capped at MAX_CARRIED_ITEMS.
+  readonly carriedItems = new Map<ItemId, number>();
 
   private wanderTargetX: number;
   private wanderTargetY: number;
   // When `idleUntilTime > ctx.time`, the villager stays put. 0 means "go
   // immediately on next tick" (initial state).
   private idleUntilTime: number;
+  // Phase 7 job state machine. When services are present in ctx, this
+  // takes priority over wander; when absent (existing tests, headless
+  // sims) the villager wanders as before.
+  readonly jobs = new VillagerJobController();
 
   constructor(
     id: number,
@@ -57,7 +85,42 @@ export class Villager extends LivingEntity {
     this.idleUntilTime = 0;
   }
 
+  // Total items carried across all types — used by the carry-cap check.
+  carriedTotal(): number {
+    let n = 0;
+    for (const c of this.carriedItems.values()) n += c;
+    return n;
+  }
+
+  // Try to add `n` of `item`, clamped by MAX_CARRIED_ITEMS. Returns the
+  // count actually added.
+  pickup(item: ItemId, n: number): number {
+    if (n <= 0) return 0;
+    const room = Math.max(0, MAX_CARRIED_ITEMS - this.carriedTotal());
+    const taken = Math.min(n, room);
+    if (taken === 0) return 0;
+    this.carriedItems.set(item, (this.carriedItems.get(item) ?? 0) + taken);
+    return taken;
+  }
+
+  // Remove and return up to `n` of `item`. Returns the count actually given.
+  drop(item: ItemId, n: number): number {
+    if (n <= 0) return 0;
+    const have = this.carriedItems.get(item) ?? 0;
+    const taken = Math.min(have, n);
+    if (taken === 0) return 0;
+    const remaining = have - taken;
+    if (remaining === 0) this.carriedItems.delete(item);
+    else this.carriedItems.set(item, remaining);
+    return taken;
+  }
+
   tick(ctx: EntityTickContext): void {
+    // Phase 7: when services are wired, the job controller drives all
+    // motion. Wander only runs when the controller declines to handle
+    // the tick (no services, or no claimable job and reserves are full).
+    if (ctx.services && this.jobs.tick(this, ctx, ctx.services)) return;
+
     if (ctx.time < this.idleUntilTime) return;
 
     const remaining = this.moveToward(

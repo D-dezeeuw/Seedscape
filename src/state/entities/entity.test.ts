@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { Mount, Pet } from "./animal";
-import {
-  FACING_EAST,
-  FACING_NORTH,
-  FACING_SOUTH,
-  FACING_WEST,
-  type Facing,
-} from "./entity";
+import { FACING_EAST, FACING_NORTH, FACING_SOUTH, FACING_WEST, type Facing } from "./entity";
 import { makeFullNeeds, SHORT_TERM_CAPACITY } from "./living_entity";
 import { Villager } from "./villager";
 

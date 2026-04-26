@@ -51,12 +51,34 @@ export function makeFullNeeds(): Needs {
 // push and wraps. Empty slot sentinel: type === 0.
 export const SHORT_TERM_CAPACITY = 16;
 
+// Memory event type codes. 0 reserved as the empty-slot sentinel; real
+// events start at 1. Phase 7 logs settler actions; later phases will
+// add NPC interactions, witnessed deaths, etc. Stable ids — saves
+// reference these by number, so don't renumber existing entries.
+export const MEMORY_EVENT_TYPES = {
+  EMPTY: 0,
+  HARVESTED: 1,
+  PLANTED: 2,
+  WATERED: 3,
+  HAULED_WATER: 4,
+  HAULED_SEED: 5,
+  DEPOSITED: 6,
+} as const;
+export type MemoryEventType =
+  (typeof MEMORY_EVENT_TYPES)[keyof typeof MEMORY_EVENT_TYPES];
+
 export interface MemoryEvent {
   type: number; // event type enum (0 = empty)
   tick: number; // when it happened (sim ticks since world start)
-  subjectId: number; // who/what was involved
+  subjectId: number; // who/what was involved (item id for action events)
   moodDelta: number; // -128..127
   weight: number; // current weight (0..255), decays over time
+  // World tile coords of the action target (HARVESTED, PLANTED, WATERED,
+  // DEPOSITED, HAULED_*). Default 0 when the event isn't tied to a tile.
+  // Stored alongside subjectId so the person window can show "Watered
+  // wheat at (12, 8)" without having to look up the live tile.
+  tileX: number;
+  tileY: number;
 }
 
 export interface LongTermEvent {
@@ -81,6 +103,15 @@ export abstract class LivingEntity extends Entity {
   // Buildings, parked mounts, etc. set false to act as fixed obstacles.
   // Default true keeps Phase 5 behavior unchanged.
   softCollide: boolean;
+  // Game time at which the entity began being unable to advance. Cleared
+  // (set to -Infinity) every time the AI confirms forward progress —
+  // walking arrives at a waypoint, possession step succeeds, etc.
+  // Consumed by entity_manager.resolveSeparation to decay the entity's
+  // collision radius once they've been stuck long enough that a knot of
+  // settlers might otherwise deadlock. -Infinity is a sentinel for "not
+  // currently stuck"; any negative number works but ±Infinity makes the
+  // intent obvious in the debugger.
+  stuckSince: number;
   // Tools this entity can execute when possessed. Empty = read-only (e.g.
   // a non-possessable creature, or an early animal class).
   availableActions: ReadonlyArray<Tool>;
@@ -90,11 +121,20 @@ export abstract class LivingEntity extends Entity {
     this.needs = makeFullNeeds();
     this.shortTermMemory = new Array(SHORT_TERM_CAPACITY)
       .fill(null)
-      .map(() => ({ type: 0, tick: 0, subjectId: 0, moodDelta: 0, weight: 0 }));
+      .map(() => ({
+        type: 0,
+        tick: 0,
+        subjectId: 0,
+        moodDelta: 0,
+        weight: 0,
+        tileX: 0,
+        tileY: 0,
+      }));
     this.shortTermHead = 0;
     this.longTermMemory = [];
     this.traits = 0;
     this.softCollide = true;
+    this.stuckSince = Number.NEGATIVE_INFINITY;
     this.availableActions = [];
   }
 
@@ -156,6 +196,38 @@ export abstract class LivingEntity extends Entity {
     this.setWorldPosition(nx, ny);
     return Math.max(0, dist - step);
   }
+}
+
+// Append an event to the entity's short-term memory ring buffer.
+// Reuses the slot at `shortTermHead` (no allocation in the hot path)
+// and advances the head with wrap-around. Capacity is fixed at
+// SHORT_TERM_CAPACITY so older events naturally age out as new ones
+// arrive — no separate "weight decays each tick" pass yet, that lives
+// in the future people-system phase.
+export function recordMemory(
+  entity: LivingEntity,
+  spec: {
+    type: MemoryEventType;
+    tick: number;
+    subjectId?: number;
+    tileX?: number;
+    tileY?: number;
+    moodDelta?: number;
+    weight?: number;
+  },
+): void {
+  const slot = entity.shortTermMemory[entity.shortTermHead];
+  if (!slot) return; // shouldn't happen — ring buffer is pre-filled
+  slot.type = spec.type;
+  slot.tick = spec.tick;
+  slot.subjectId = spec.subjectId ?? 0;
+  slot.tileX = spec.tileX ?? 0;
+  slot.tileY = spec.tileY ?? 0;
+  slot.moodDelta = spec.moodDelta ?? 0;
+  // Default weight 64 — moderate freshness so readers can sort/filter
+  // by it later. Phase 7 doesn't decay these; future work does.
+  slot.weight = spec.weight ?? 64;
+  entity.shortTermHead = (entity.shortTermHead + 1) % SHORT_TERM_CAPACITY;
 }
 
 function pickFacing(dx: number, dy: number): Facing {

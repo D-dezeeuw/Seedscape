@@ -27,6 +27,24 @@ export interface UnlockDef {
 // project_phase_deferred.md.
 export const UNLOCK_DEFS: ReadonlyArray<UnlockDef> = [
   { id: "seed.wheat", kind: "seed", targetId: 600, requiredLevel: 1, displayName: "Wheat seeds" },
+  // Crate + dispenser unlock at level 2 — early enough that settler
+  // autonomy (Phase 7) is reachable on the first farm before the player
+  // touches the production chain. Cheaper than the mill so the cost
+  // curve still introduces them gradually.
+  {
+    id: "building.crate",
+    kind: "building",
+    targetId: 220,
+    requiredLevel: 2,
+    displayName: "Storage Crate",
+  },
+  {
+    id: "building.seed_dispenser",
+    kind: "building",
+    targetId: 221,
+    requiredLevel: 2,
+    displayName: "Seed Dispenser",
+  },
   { id: "building.mill", kind: "building", targetId: 200, requiredLevel: 3, displayName: "Mill" },
   { id: "seed.carrot", kind: "seed", targetId: 608, requiredLevel: 5, displayName: "Carrot seeds" },
   {

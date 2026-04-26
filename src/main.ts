@@ -9,17 +9,21 @@ import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
+import type { EntityServices, TileWorldAccess } from "./state/entities/entity";
 import { EntityManager } from "./state/entities/entity_manager";
 import { LivingEntity } from "./state/entities/living_entity";
 import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
-import { ITEM_IDS } from "./state/items";
+import { ITEM_IDS, type ItemId } from "./state/items";
+import { JobEmitter } from "./state/job_emitter";
+import { JobBoard } from "./state/jobs";
 import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
 import { FacedTileReticle } from "./ui/faced_tile_reticle";
@@ -36,17 +40,22 @@ import { createToaster } from "./ui/toast";
 import { createToolbar, type ToolbarWindow } from "./ui/toolbar";
 import { GenerationPool } from "./workers/generation_pool";
 import { IoClient } from "./workers/io_client";
+import { PathfindingClient } from "./workers/pathfinding_client";
 import { SimulationPool } from "./workers/simulation_pool";
 import {
   CHUNK_FLAG_DIRTY_RENDER,
   CHUNK_FLAG_DIRTY_SIMULATION,
+  CHUNK_SIZE,
   type ChunkRecord,
   tileIndex,
 } from "./world/chunk";
 import { ChunkManager } from "./world/chunk_manager";
-import { visibleChunkRect } from "./world/coords";
+import { chunkKey, visibleChunkRect } from "./world/coords";
+import { CrateStore } from "./world/farming/crate";
+import { restockAutoContainers } from "./world/farming/restock";
 import { applySimDelta } from "./world/farming/sim_pipeline";
-import { isEntityWalkable } from "./world/walkability";
+import { harvestTile, plantSeed, waterTile } from "./world/farming/tile_actions";
+import { buildChunkMask, isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
 const WORLD_SEED = 0xc0ffee;
@@ -112,13 +121,33 @@ async function bootstrap(): Promise<void> {
   const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
   const generationPool = new GenerationPool(WORLD_SEED);
   await generationPool.ready();
+  const pathfinding = new PathfindingClient();
+  // Reused scratch for mask builds — one allocation, not one per chunk-load.
+  const maskScratch = new Uint8Array(1024);
   const chunkManager = new ChunkManager({
     pool: generationPool,
     renderer,
     cacheCapacity: CACHE_CAPACITY,
+    hooks: {
+      // pathfinding.updateChunk copies the mask into a fresh transferable
+      // before posting, so the scratch buffer can be reused across calls.
+      onChunkLoaded: (cx, cy, data) => {
+        pathfinding.updateChunk(chunkKey(cx, cy), buildChunkMask(data, maskScratch));
+      },
+      onChunkEvicted: (cx, cy) => {
+        pathfinding.invalidateChunk(chunkKey(cx, cy));
+      },
+      onChunkMutated: (cx, cy, data) => {
+        pathfinding.updateChunk(chunkKey(cx, cy), buildChunkMask(data, maskScratch));
+      },
+    },
   });
   const simulationPool = new SimulationPool();
   const ioClient = new IoClient();
+  // Reused per frame for the entity-chunk pin set passed to
+  // chunkManager.update. Pooling keeps the per-frame walk allocation-
+  // free in the steady state.
+  const entityChunkScratch = new Set<string>();
 
   const camera = new Camera();
   camera.x = 0;
@@ -129,6 +158,9 @@ async function bootstrap(): Promise<void> {
   inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
   const orders = new OrderBook(0);
   const entityManager = new EntityManager();
+  const crates = new CrateStore();
+  const jobBoard = new JobBoard();
+  const jobEmitter = new JobEmitter({ board: jobBoard, chunks: chunkManager, crates });
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.
@@ -146,6 +178,7 @@ async function bootstrap(): Promise<void> {
     orders,
     entityManager,
     possession,
+    crates,
     gameTimeSec: () => gameTimeSec,
   });
 
@@ -220,6 +253,22 @@ async function bootstrap(): Promise<void> {
     },
   });
 
+  const containerWindow = createContainerWindow({
+    parent: document.body,
+    inventory,
+    crates,
+    readTileId: (x, y) => {
+      const cx = Math.floor(x / CHUNK_SIZE);
+      const cy = Math.floor(y / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return null;
+      const lx = x - cx * CHUNK_SIZE;
+      const ly = y - cy * CHUNK_SIZE;
+      return rec.data.tileId[tileIndex(lx, ly)] ?? 0;
+    },
+    toast: (msg) => toaster.show(msg),
+  });
+
   const detachInteraction = attachTileInteraction({
     canvas,
     camera,
@@ -230,6 +279,7 @@ async function bootstrap(): Promise<void> {
     tileWorldSize: TILE_WORLD_SIZE,
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
+    onContainerClick: (x, y) => containerWindow.showFor(x, y),
     isPossessing: () => possession.isPossessing(),
   });
 
@@ -262,7 +312,16 @@ async function bootstrap(): Promise<void> {
   });
   const settingsWindow = createSettingsPanel({ parent: document.body });
   const debugWindow = import.meta.env.DEV
-    ? createDebugPanel({ parent: document.body, player, inventory, entityManager, camera })
+    ? createDebugPanel({
+        parent: document.body,
+        player,
+        inventory,
+        entityManager,
+        camera,
+        chunkManager,
+        crates,
+        toast: (msg) => toaster.show(msg),
+      })
     : null;
 
   const toolbarWindows: ToolbarWindow[] = [
@@ -352,6 +411,13 @@ async function bootstrap(): Promise<void> {
     tick += 1;
     gameTimeSec += 1;
     orders.tick(gameTimeSec);
+    // Phase 7: convert world state into job board entries on a fixed
+    // cadence. Settlers consume from the same board on the main-thread
+    // entity tick — the emitter doesn't care who's listening.
+    jobEmitter.tick(tick);
+    // Auto-restock dispensers from the player's inventory once per sim
+    // tick. Cheap (skips early when no auto-containers loaded).
+    restockAutoContainers(chunkManager, inventory, crates);
 
     for (const key of getSimulatableChunkKeys(chunkManager)) {
       if (inFlightKeys.has(key)) continue;
@@ -409,6 +475,80 @@ async function bootstrap(): Promise<void> {
     if (document.visibilityState === "hidden") triggerSave();
   });
 
+  // TileWorldAccess for the settler state machine. Wraps chunkManager so
+  // tile reads/writes go through the dirty-marking path (otherwise
+  // walkability mirrors and renderer would not see settler-driven edits).
+  const tileWorld: TileWorldAccess = {
+    readTile(wx, wy) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return null;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const i = tileIndex(lx, ly);
+      return {
+        tileId: rec.data.tileId[i] ?? 0,
+        state: rec.data.state[i] ?? 0,
+        metadata: rec.data.metadata[i] ?? 0,
+      };
+    },
+    harvestAt(wx, wy) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return { applied: false };
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = harvestTile(rec.data, lx, ly);
+      if (r.applied) {
+        chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+      }
+      const out: { applied: boolean; produceItem?: number; yield?: number } = {
+        applied: r.applied,
+      };
+      if (r.produceItem !== undefined) out.produceItem = r.produceItem;
+      if (r.yield !== undefined) out.yield = r.yield;
+      return out;
+    },
+    waterAt(wx, wy) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = waterTile(rec.data, lx, ly);
+      if (r.applied) {
+        chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+      }
+      return r.applied;
+    },
+    plantSeedAt(wx, wy, seedItem) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = plantSeed(rec.data, lx, ly, seedItem as ItemId);
+      if (r.applied) {
+        chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+      }
+      return r.applied;
+    },
+    allChunkRecords() {
+      return chunkManager.allChunkRecords();
+    },
+  };
+
+  const entityServices: EntityServices = {
+    jobs: jobBoard,
+    pathfinding,
+    crates,
+    tileWorld,
+  };
+
   // Walkability lookup used by entity AI. Returns false if the chunk
   // hasn't been generated yet — the wander code already falls back to
   // home in that case.
@@ -439,13 +579,7 @@ async function bootstrap(): Promise<void> {
     const move = inputRouter.vector();
     const possessed = possession.entity;
     if (possession.isPossessing() && possessed instanceof LivingEntity) {
-      possessed.moveCardinal(
-        move.dx,
-        move.dy,
-        AVATAR_WALK_TILES_PER_SEC,
-        dt,
-        isWalkableTile,
-      );
+      possessed.moveCardinal(move.dx, move.dy, AVATAR_WALK_TILES_PER_SEC, dt, isWalkableTile);
     } else if (move.dx !== 0 || move.dy !== 0) {
       // God-mode pan. Cancel any active panTo so keyboard input feels
       // immediate and treat the input as a "drag" so a follow we set up
@@ -469,7 +603,18 @@ async function bootstrap(): Promise<void> {
       TILE_WORLD_SIZE,
       STREAM_MARGIN_CHUNKS,
     );
-    chunkManager.update(rect);
+    // Pin chunks that hold live entities so the LRU cache can't evict
+    // them when the camera moves. Without this, off-screen settlers
+    // lose their walkability mask in the pathfinding worker and freeze
+    // in place — they tick fine on the main thread but every path
+    // request fails. The set is rebuilt every frame because entities
+    // can move between chunks; the walk is O(entities), trivial at 150.
+    // Pooled to avoid per-frame allocations in the steady state.
+    entityChunkScratch.clear();
+    for (const e of entityManager.iterate()) {
+      entityChunkScratch.add(chunkKey(e.chunkX, e.chunkY));
+    }
+    chunkManager.update(rect, { simKeepSet: entityChunkScratch });
 
     // Entity tick — main thread, every frame, with elapsed dt. Cheap at
     // MVP scale (≤16 entities). When count grows, batch into a fixed-step
@@ -481,6 +626,8 @@ async function bootstrap(): Promise<void> {
         dt,
         worldSeed: WORLD_SEED,
         isWalkable: isWalkableTile,
+        simTick: tick,
+        services: entityServices,
       },
       possessed?.id ?? null,
     );

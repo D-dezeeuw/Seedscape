@@ -45,6 +45,49 @@ export interface EntityTickContext {
   // True if the given world tile is walkable for entities. Implementation
   // lives on the chunk side; we just consume the result here.
   isWalkable: (worldTileX: number, worldTileY: number) => boolean;
+  // Current sim tick (Phase 4 sim ticks at 1Hz). Job emitters and
+  // stuck-job timeouts use this — undefined when entities run in
+  // isolation tests that don't tick the sim.
+  simTick?: number;
+  // Optional services for autonomous behaviour (Phase 7). When absent,
+  // entities fall back to their pre-Phase-7 behaviour (settlers wander).
+  // Defined as a forward-declared interface so this file doesn't need
+  // imports from job/path modules.
+  services?: EntityServices;
+}
+
+// Services that autonomous entities consume. Imported by Villager and
+// future AI consumers (animals fleeing, deliveries). Kept generic so
+// non-Villager entities don't have to construct unused fields.
+export interface EntityServices {
+  jobs?: import("../jobs").JobBoard;
+  pathfinding?: import("../../workers/pathfinding_client").PathfindingClient;
+  crates?: import("../../world/farming/crate").CrateStore;
+  tileWorld?: TileWorldAccess;
+}
+
+// Minimal tile-world surface used by the state machine. Implemented by
+// the live ChunkManager; tests inject a fake.
+export interface TileWorldAccess {
+  // Read tileId / state / metadata at a world tile, or null when the
+  // chunk isn't loaded.
+  readTile(
+    worldTileX: number,
+    worldTileY: number,
+  ): { tileId: number; state: number; metadata: number } | null;
+  // Apply a tile action by world coords. Returns whether it applied.
+  // Implementations mark the chunk dirty internally.
+  harvestAt(
+    worldTileX: number,
+    worldTileY: number,
+  ): { applied: boolean; produceItem?: number; yield?: number };
+  waterAt(worldTileX: number, worldTileY: number): boolean;
+  // Plant a seed on an empty tilled tile. seedItem is the ItemId from
+  // the player's seed range (600..699). Returns whether it applied
+  // (false when the tile got planted by someone else mid-flight, etc.).
+  plantSeedAt(worldTileX: number, worldTileY: number, seedItem: number): boolean;
+  // Iterate loaded chunks (for emitter, water-finder, crate scans).
+  allChunkRecords(): IterableIterator<[string, import("../../world/chunk").ChunkRecord]>;
 }
 
 export abstract class Entity {

@@ -12,8 +12,8 @@
 
 import { describe, expect, test } from "vitest";
 import { InputRouter } from "../input/input_router";
-import { EntityManager } from "./entities/entity_manager";
 import { FACING_EAST } from "./entities/entity";
+import { EntityManager } from "./entities/entity_manager";
 import { LivingEntity } from "./entities/living_entity";
 import { Villager } from "./entities/villager";
 import { PossessionController } from "./possession";

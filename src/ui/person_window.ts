@@ -11,8 +11,21 @@
 
 import { Animal, Mount, Pet } from "../state/entities/animal";
 import type { Entity } from "../state/entities/entity";
-import { LivingEntity, type MemoryEvent } from "../state/entities/living_entity";
+import {
+  LivingEntity,
+  MEMORY_EVENT_TYPES,
+  type MemoryEvent,
+} from "../state/entities/living_entity";
+import { ITEM_DEFS } from "../state/items";
 import { Villager } from "../state/entities/villager";
+import {
+  JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_SEED,
+  JOB_KIND_HAUL_WATER,
+  JOB_KIND_PLANT_SEED,
+  JOB_KIND_WATER_CROP,
+  type JobKind,
+} from "../state/jobs";
 import { makeWindow } from "./window";
 
 const REFRESH_HZ = 4;
@@ -53,6 +66,9 @@ const IDENTITY: DetailSection = {
   render: (e) => {
     const name = e instanceof Villager ? e.name : prettifyType(e);
     const out = [row("Name", name), row("Type", e.type), row("Id", e.id)];
+    if (e instanceof Villager) {
+      out.push(row("Gender", e.gender === "female" ? "Female" : "Male"));
+    }
     if (e instanceof Animal) out.push(row("Species", e.species));
     if (e instanceof Pet) {
       out.push(row("Owner", e.ownerId === null ? "—" : `#${e.ownerId}`));
@@ -112,7 +128,12 @@ const SHORT_TERM_MEMORY: DetailSection = {
   applies: (e) => e instanceof LivingEntity,
   render: (e) => {
     const buf = (e as LivingEntity).shortTermMemory;
-    const events = buf.filter((m) => m.type !== 0);
+    const events = buf
+      .filter((m) => m.type !== 0)
+      // Newest first — shortTermHead points at the next slot to write,
+      // so events ordered by tick descending give the most recent at top.
+      .slice()
+      .sort((a, b) => b.tick - a.tick);
     if (events.length === 0) return empty("no recent events");
     return events.map(renderMemoryEvent).join("");
   },
@@ -130,14 +151,62 @@ const LONG_TERM_MEMORY: DetailSection = {
   },
 };
 
+const JOB: DetailSection = {
+  title: "Job",
+  applies: (e) => e instanceof Villager,
+  render: (e) => {
+    const v = e as Villager;
+    const stateName = v.jobs.currentStateName();
+    const jobId = v.jobs.currentJobId();
+    const phase = v.jobs.currentPhase();
+    const waypoints = v.jobs.currentWaypoints();
+    const out = [
+      row("State", stateName),
+      row("Water reserve", `${v.waterReserve}/5`),
+      row("Carrying", carriedSummary(v)),
+    ];
+    if (jobId !== null) out.push(row("Job id", `#${jobId}`));
+    if (phase !== null) out.push(row("Phase", phase));
+    if (waypoints && waypoints.length > 0) {
+      const idx = v.jobs.currentWaypointIdx() ?? 0;
+      out.push(row("Waypoints", `${idx / 2}/${waypoints.length / 2}`));
+    }
+    return out.join("");
+  },
+};
+
 const SECTIONS: DetailSection[] = [
   IDENTITY,
   LOCATION,
+  JOB,
   NEEDS,
   TRAITS,
   SHORT_TERM_MEMORY,
   LONG_TERM_MEMORY,
 ];
+
+function carriedSummary(v: Villager): string {
+  const parts: string[] = [];
+  for (const [item, count] of v.carriedItems) parts.push(`${count}×#${item}`);
+  return parts.length === 0 ? "—" : parts.join(", ");
+}
+
+// Currently unused but kept for the future "name the kind" needs of an
+// in-world tooltip. Removing now would mean re-deriving it later.
+export function jobKindLabel(kind: JobKind): string {
+  switch (kind) {
+    case JOB_KIND_HAUL_WATER:
+      return "Haul water";
+    case JOB_KIND_WATER_CROP:
+      return "Water crop";
+    case JOB_KIND_HARVEST_CROP:
+      return "Harvest crop";
+    case JOB_KIND_PLANT_SEED:
+      return "Plant seed";
+    case JOB_KIND_HAUL_SEED:
+      return "Haul seed";
+  }
+}
 
 // ---------- Panel ----------
 
@@ -227,6 +296,37 @@ function prettifyType(e: Entity): string {
 }
 
 function renderMemoryEvent(m: MemoryEvent): string {
-  const sign = m.moodDelta > 0 ? "+" : "";
-  return row(`tick ${m.tick}`, `type ${m.type} · ${sign}${m.moodDelta} mood · weight ${m.weight}`);
+  return row(`t${m.tick}`, memoryEventLabel(m));
+}
+
+// Human-readable label for a memory event. Action events (Phase 7) get
+// a verb + item + tile suffix; unknown / future event types fall back
+// to the raw enum number so a missing translation is at least debuggable.
+function memoryEventLabel(m: MemoryEvent): string {
+  const tile = m.tileX !== 0 || m.tileY !== 0 ? ` at (${m.tileX}, ${m.tileY})` : "";
+  switch (m.type) {
+    case MEMORY_EVENT_TYPES.HARVESTED:
+      return `Harvested ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.PLANTED:
+      return `Planted ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.WATERED: {
+      const what = m.subjectId !== 0 ? ` ${itemName(m.subjectId)}` : " a crop";
+      return `Watered${what}${tile}`;
+    }
+    case MEMORY_EVENT_TYPES.HAULED_WATER:
+      return `Filled water${tile}`;
+    case MEMORY_EVENT_TYPES.HAULED_SEED:
+      return `Picked up ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.DEPOSITED:
+      return `Stored ${itemName(m.subjectId)}${tile}`;
+    default:
+      return `Event #${m.type}${tile}`;
+  }
+}
+
+// Display name for an item id; falls back to "#id" for unknown ids
+// (e.g., if a future seed/produce isn't yet in ITEM_DEFS).
+function itemName(itemId: number): string {
+  const def = ITEM_DEFS.get(itemId as Parameters<typeof ITEM_DEFS.get>[0]);
+  return def?.displayName ?? `#${itemId}`;
 }

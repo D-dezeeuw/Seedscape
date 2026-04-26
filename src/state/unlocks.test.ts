@@ -30,8 +30,15 @@ describe("newUnlocksAtLevel", () => {
     expect(ids).toEqual(["building.bakery", "seed.carrot"]);
   });
 
+  test("level 2 unlocks the storage containers", () => {
+    const ids = newUnlocksAtLevel(2)
+      .map((u) => u.id)
+      .sort();
+    expect(ids).toEqual(["building.crate", "building.seed_dispenser"]);
+  });
+
   test("empty when nothing unlocks at that level", () => {
-    expect(newUnlocksAtLevel(2)).toEqual([]);
+    expect(newUnlocksAtLevel(4)).toEqual([]);
   });
 });
 

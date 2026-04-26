@@ -15,7 +15,7 @@ import { buildingForTile } from "../world/farming/building_registry";
 import { cropForSeed } from "../world/farming/crop_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
-import { pickTile, type PickResult } from "./picker";
+import { type PickResult, pickTile } from "./picker";
 import type { ToolState } from "./tool";
 
 const HARVEST_XP_PER_YIELD = 1;
@@ -149,6 +149,11 @@ export interface TileInteractionDeps {
   // avatar via the action key. Drag-pan and click-to-pick-entity remain
   // available so the player can still peek and switch possession target.
   isPossessing?: () => boolean;
+  // Pan-mode click on a container tile (crate, dispenser) — fires AFTER
+  // the entity-picker check fails, so clicking on a settler standing on
+  // a crate still opens the person window. Possessing blocks this too,
+  // matching the rule that god-mode tools don't fire when possessed.
+  onContainerClick?: (worldTileX: number, worldTileY: number) => void;
 }
 
 export function attachTileInteraction(deps: TileInteractionDeps): () => void {
@@ -196,7 +201,16 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
         const worldX = pick.worldTileX + 0.5;
         const worldY = pick.worldTileY + 0.5;
         const e = deps.entityManager.pickAt(worldX, worldY, 0.6);
-        if (e) deps.onEntityClick(e);
+        if (e) {
+          deps.onEntityClick(e);
+          return;
+        }
+      }
+      // No entity hit: pan-mode (only) opens the container window when
+      // the click lands on a container tile. Possessing skips this — the
+      // possessed avatar uses the action key for tile interactions.
+      if (tool.current === "none" && !deps.isPossessing?.() && deps.onContainerClick) {
+        deps.onContainerClick(pick.worldTileX, pick.worldTileY);
       }
       return;
     }

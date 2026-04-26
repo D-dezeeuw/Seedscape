@@ -131,7 +131,7 @@ export function simulateChunkTick(chunk: ChunkData, tick: number, scratch: SimSc
 
     // ---- Building tick ----
     const building = buildingForTile(tileId);
-    if (building) {
+    if (building && !building.passive) {
       const progress = chunk.state[i] ?? 0;
       const meta = chunk.metadata[i] ?? 0;
       const queued = getQueuedJobs(meta);

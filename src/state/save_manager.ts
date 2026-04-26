@@ -5,6 +5,7 @@
 import type { Camera } from "../input/camera";
 import type { IoClient } from "../workers/io_client";
 import type { ChunkManager } from "../world/chunk_manager";
+import type { CrateContentsSnapshot, CrateStore } from "../world/farming/crate";
 import type { EntityManager } from "./entities/entity_manager";
 import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
 import type { Inventory } from "./inventory";
@@ -24,8 +25,15 @@ import type { PossessionController } from "./possession";
 //   would have run without a save/load round-trip.
 // 6 → 7 (Phase 5 cleanup): Mount snapshot persists ridden + riderId so
 //   saving mid-ride doesn't silently dismount the rider on load.
+// 7 → 8 (Phase 7): villager waterReserve + carriedItems, crate contents.
+//   Job state itself isn't persisted — settlers reset to idle on load and
+//   the emitter rebuilds the board from current world state on first tick.
+// 8 → 9: villager.gender, paired with the first name in data/names.json.
+//   Bumped on principle even though deserialize tolerates missing values
+//   (defaults to "male") — keeping the version monotonic for any future
+//   migration tooling.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 9;
 
 export interface SavedChunk {
   chunkX: number;
@@ -50,6 +58,8 @@ export interface Snapshot {
   // Id of the entity the player was possessing at save time, or null.
   // Restored after entities are deserialized so the camera can re-attach.
   possessedEntityId: number | null;
+  // Storage crate contents per world tile. Empty object on a fresh world.
+  crates: CrateContentsSnapshot;
 }
 
 export interface SaveManagerDeps {
@@ -62,6 +72,7 @@ export interface SaveManagerDeps {
   orders: OrderBook;
   entityManager: EntityManager;
   possession: PossessionController;
+  crates: CrateStore;
   // Function returning the current game-time-seconds when called.
   gameTimeSec: () => number;
 }
@@ -97,6 +108,7 @@ export class SaveManager {
       gameTimeSec: this.deps.gameTimeSec(),
       entities,
       possessedEntityId: this.deps.possession.entity?.id ?? null,
+      crates: this.deps.crates.toJSON(),
     };
   }
 
@@ -127,6 +139,7 @@ export class SaveManager {
     this.deps.player.loadFromJSON(snapshot.player);
     this.deps.inventory.loadFromJSON(snapshot.inventory);
     this.deps.orders.loadFromJSON(snapshot.orders);
+    this.deps.crates.loadFromJSON(snapshot.crates);
     for (const c of snapshot.chunks) {
       this.deps.chunkManager.preloadChunk(c.chunkX, c.chunkY, {
         tileId: c.tileId,
