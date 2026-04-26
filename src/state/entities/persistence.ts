@@ -23,6 +23,11 @@ export interface SavedEntity {
   // Per-type payload — only the field matching `type` is read.
   villager?: {
     name: string;
+    // Persisted as a free-form string so a future "non-binary" or
+    // species-specific value doesn't force a save migration. Loader
+    // narrows back to Gender at deserialize time; unknown values
+    // default to "male" rather than rejecting the save.
+    gender: string;
     homeWorldTileX: number;
     homeWorldTileY: number;
     // Phase 7: settler reserves + carried items survive save/load. Job state
@@ -65,6 +70,7 @@ export function serializeEntity(e: Entity): SavedEntity {
     for (const [item, count] of e.carriedItems) carried[item] = count;
     base.villager = {
       name: e.name,
+      gender: e.gender,
       homeWorldTileX: e.homeWorldTileX,
       homeWorldTileY: e.homeWorldTileY,
       waterReserve: e.waterReserve,
@@ -108,6 +114,9 @@ export function deserializeEntity(saved: SavedEntity): Entity {
         { x: data.homeWorldTileX, y: data.homeWorldTileY },
         saved.facing,
       );
+      // Narrow gender back to the union; unknown values fall back to
+      // "male" rather than rejecting an otherwise valid save.
+      v.gender = data.gender === "female" ? "female" : "male";
       v.waterReserve = data.waterReserve;
       for (const [itemStr, count] of Object.entries(data.carriedItems)) {
         if (count > 0) v.carriedItems.set(Number(itemStr) as ItemId, count);

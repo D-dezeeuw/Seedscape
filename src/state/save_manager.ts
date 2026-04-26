@@ -28,8 +28,12 @@ import type { PossessionController } from "./possession";
 // 7 → 8 (Phase 7): villager waterReserve + carriedItems, crate contents.
 //   Job state itself isn't persisted — settlers reset to idle on load and
 //   the emitter rebuilds the board from current world state on first tick.
+// 8 → 9: villager.gender, paired with the first name in data/names.json.
+//   Bumped on principle even though deserialize tolerates missing values
+//   (defaults to "male") — keeping the version monotonic for any future
+//   migration tooling.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 export interface SavedChunk {
   chunkX: number;

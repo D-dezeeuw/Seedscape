@@ -269,6 +269,7 @@ function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {
     // initial spawn ids on a fresh world. Camera nudges deduplicate
     // without making names time-dependent.
     const seed = id ^ ((cx0 * 73856093) ^ (cy0 * 19349663));
+    const picked = pickFullName(seed);
     const v = new Villager(
       id,
       {
@@ -277,9 +278,10 @@ function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {
         localX: ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
         localY: ((wy % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
       },
-      pickFullName(seed),
+      picked.name,
       { x: Math.floor(wx), y: Math.floor(wy) },
     );
+    v.gender = picked.gender;
     deps.entityManager.add(v);
   }
 }

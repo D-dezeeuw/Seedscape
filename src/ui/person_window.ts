@@ -66,6 +66,9 @@ const IDENTITY: DetailSection = {
   render: (e) => {
     const name = e instanceof Villager ? e.name : prettifyType(e);
     const out = [row("Name", name), row("Type", e.type), row("Id", e.id)];
+    if (e instanceof Villager) {
+      out.push(row("Gender", e.gender === "female" ? "Female" : "Male"));
+    }
     if (e instanceof Animal) out.push(row("Species", e.species));
     if (e instanceof Pet) {
       out.push(row("Owner", e.ownerId === null ? "—" : `#${e.ownerId}`));

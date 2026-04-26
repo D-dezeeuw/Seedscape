@@ -16,6 +16,7 @@ import {
   type Facing,
 } from "./entity";
 import { LivingEntity, VILLAGER_AVAILABLE_ACTIONS } from "./living_entity";
+import type { Gender } from "./names";
 import { VillagerJobController } from "./villager_jobs";
 
 const WALK_SPEED_TILES_PER_SEC = 4;
@@ -38,6 +39,11 @@ export class Villager extends LivingEntity {
   readonly type: EntityType = "villager";
 
   name: string;
+  // Gender pairs with the first name (data/names.json tags each entry).
+  // Default "male" so test fixtures + tools that build villagers
+  // without going through pickFullName don't need to specify; spawn
+  // sites always overwrite this with the value from pickFullName.
+  gender: Gender = "male";
   // Anchor point the wander AI loops around. Stored as world tile coords;
   // sub-tile target picked inside that tile's bounds.
   homeWorldTileX: number;
