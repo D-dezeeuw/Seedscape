@@ -136,6 +136,9 @@ export class SimulationPool {
           tileId: new Uint16Array(msg.deltaTileId),
           state: new Uint8Array(msg.deltaState),
           metadata: new Uint8Array(msg.deltaMetadata),
+          prevTileId: new Uint16Array(msg.prevTileId),
+          prevState: new Uint8Array(msg.prevState),
+          prevMetadata: new Uint8Array(msg.prevMetadata),
           productionEvents: msg.productionEvents,
         },
       });

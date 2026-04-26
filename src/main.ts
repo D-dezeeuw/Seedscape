@@ -360,12 +360,22 @@ async function bootstrap(): Promise<void> {
         .then((result) => {
           inFlightKeys.delete(key);
           if (result.delta.count > 0) {
-            applySimDelta(record.data, result.delta);
-            record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+            const applied = applySimDelta(record.data, result.delta);
+            // Only mark dirty if at least one entry actually applied —
+            // a fully-skipped delta (everything raced) shouldn't churn
+            // the GPU upload or autosave.
+            if (applied > 0) {
+              record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+            }
           }
-          // Apply production events to the player. Indices in the event are
-          // tile-local; the building tile id is at chunk.data.tileId[i].
+          // Apply production events to the player — but only if the tile
+          // is STILL the building the sim expected. If the player
+          // dismantled or replaced the building during sim flight, the
+          // cycle's output is forfeit (race-loss policy consistent with
+          // applySimDelta).
           for (const ev of result.delta.productionEvents) {
+            const liveTileId = record.data.tileId[ev.tileIndex] ?? 0;
+            if (liveTileId !== ev.expectedTileId) continue;
             inventory.add(ev.itemId as never, ev.quantity);
             player.addXp(ev.quantity * PRODUCTION_XP_PER_OUTPUT);
           }
