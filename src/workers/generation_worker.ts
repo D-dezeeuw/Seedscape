@@ -3,7 +3,11 @@
 // instances per worldSeed so simplex permutation tables are built once.
 
 import { allocChunkData, type ChunkData, TILES_PER_CHUNK } from "../world/chunk";
-import { createWorldNoise, generateChunk, type WorldNoise } from "../world/generation";
+import {
+  createWorldNoiseV2,
+  generateChunkV2,
+  type WorldNoiseV2,
+} from "../world/generation_v2";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -24,7 +28,7 @@ export type GenerationResponse =
     }
   | { type: "error"; taskId: number; error: string };
 
-let noise: WorldNoise | null = null;
+let noise: WorldNoiseV2 | null = null;
 // Pre-allocated buffer reused across tasks. Generation writes into these
 // arrays, then we hand the underlying buffers to postMessage as Transferables
 // and immediately allocate fresh ones for the next task. No GC churn.
@@ -33,7 +37,7 @@ let scratch: ChunkData = allocChunkData();
 self.onmessage = (event: MessageEvent<GenerationRequest>): void => {
   const msg = event.data;
   if (msg.type === "init") {
-    noise = createWorldNoise(msg.worldSeed);
+    noise = createWorldNoiseV2(msg.worldSeed);
     const ready: GenerationResponse = { type: "ready" };
     self.postMessage(ready);
     return;
@@ -50,7 +54,7 @@ self.onmessage = (event: MessageEvent<GenerationRequest>): void => {
       return;
     }
     try {
-      generateChunk(noise, msg.chunkX, msg.chunkY, scratch);
+      generateChunkV2(noise, msg.chunkX, msg.chunkY, scratch);
       const filled = scratch;
       // Hand off the underlying buffers and allocate fresh scratch for the
       // next task. Transferables zero-copy into the main thread.
