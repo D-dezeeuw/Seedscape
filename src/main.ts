@@ -8,6 +8,7 @@ import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
+import { spawnSettler } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
@@ -138,6 +139,12 @@ async function bootstrap(): Promise<void> {
   // Prime an order list either way (refreshes immediately at gameTimeSec=0
   // on a fresh world; on load the saved nextRefreshSec drives the schedule).
   orders.tick(gameTimeSec);
+
+  // Fresh launch (no save) → drop the lonely settler near origin once
+  // chunk(0,0) is generated. Loaded saves restore them via applySnapshot.
+  if (!existingSave) {
+    void spawnSettler({ chunkManager, entityManager });
+  }
 
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
