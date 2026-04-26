@@ -4,7 +4,8 @@ Numbered reference. Pull targeted docs per task — do not load all at once.
 
 ## Orientation
 
-- [00_overview.md](00_overview.md) — Vision, pillars, world structure
+- [00_overview.md](00_overview.md) — Technical vision, pillars, world structure
+- [21_vision_and_story.md](21_vision_and_story.md) — Player vision, story, dual-control (god + possession)
 - [01_game_design.md](01_game_design.md) — Player-facing rules
 - [17_mvp_scope.md](17_mvp_scope.md) — What's in / out of first playable
 - [19_roadmap.md](19_roadmap.md) — Phase plan + exit criteria
