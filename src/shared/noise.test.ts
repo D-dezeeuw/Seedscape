@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createNoise2D, fbm2 } from "./noise";
+import { createNoise2D, domainWarp, fbm2 } from "./noise";
 
 describe("createNoise2D", () => {
   test("is deterministic for the same seed", () => {
@@ -52,5 +52,51 @@ describe("fbm2", () => {
       expect(v).toBeGreaterThan(-1.5);
       expect(v).toBeLessThan(1.5);
     }
+  });
+});
+
+describe("domainWarp", () => {
+  test("strength=0 is the identity transform", () => {
+    const wx = createNoise2D(1);
+    const wy = createNoise2D(2);
+    const out = domainWarp(3.5, -7.25, wx, wy, 0);
+    expect(out.x).toBe(3.5);
+    expect(out.y).toBe(-7.25);
+  });
+
+  test("is deterministic for fixed seeds + inputs", () => {
+    const wx1 = createNoise2D(1);
+    const wy1 = createNoise2D(2);
+    const wx2 = createNoise2D(1);
+    const wy2 = createNoise2D(2);
+    const a = domainWarp(0.7, 0.3, wx1, wy1, 0.4);
+    const b = domainWarp(0.7, 0.3, wx2, wy2, 0.4);
+    expect(a.x).toBe(b.x);
+    expect(a.y).toBe(b.y);
+  });
+
+  test("strength scales the perturbation", () => {
+    const wx = createNoise2D(1);
+    const wy = createNoise2D(2);
+    const small = domainWarp(0.5, 0.5, wx, wy, 0.1);
+    const large = domainWarp(0.5, 0.5, wx, wy, 1.0);
+    const dxSmall = Math.abs(small.x - 0.5);
+    const dxLarge = Math.abs(large.x - 0.5);
+    expect(dxLarge).toBeGreaterThan(dxSmall);
+  });
+
+  test("decorrelated noise instances move x and y independently", () => {
+    const wx = createNoise2D(1);
+    const wy = createNoise2D(2);
+    // Sample many points; most should have dx ≠ dy. Identical noise
+    // instances would force dx === dy at every point.
+    let differences = 0;
+    for (let i = 0; i < 50; i++) {
+      const px = i * 0.37;
+      const py = i * 0.71;
+      const out = domainWarp(px, py, wx, wy, 0.5);
+      if (out.x - px !== out.y - py) differences++;
+    }
+    expect(differences).toBeGreaterThan(40);
   });
 });
