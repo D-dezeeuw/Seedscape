@@ -211,11 +211,14 @@ async function bootstrap(): Promise<void> {
     },
   });
 
-  // ESC releases possession. Step 9 will route ESC through a priority
-  // chain (close window → exit possession); for now this is the bare
-  // bones so the player can always get out.
+  // ESC priority: close any open window first; only when nothing is
+  // open does ESC release possession. Window-closing handlers in
+  // toolbar.ts and person_window.ts call preventDefault when they
+  // actually close something, so checking defaultPrevented here lets
+  // them win without coupling to their internals.
   const onEscKey = (e: KeyboardEvent): void => {
     if (e.key !== "Escape") return;
+    if (e.defaultPrevented) return;
     if (possession.isPossessing()) possession.exit();
   };
   window.addEventListener("keydown", onEscKey);
