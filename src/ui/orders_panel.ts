@@ -23,7 +23,7 @@ const NPC_NAMES: Record<string, string> = Object.fromEntries(
 
 export function createOrdersPanel(deps: OrdersPanelDeps): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel";
+  panel.className = "ss-panel ss-orders";
   panel.innerHTML = `<h3>Trader</h3><div data-field="rows"></div>`;
   deps.parent.appendChild(panel);
   const rows = panel.querySelector('[data-field="rows"]') as HTMLDivElement;

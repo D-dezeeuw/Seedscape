@@ -12,7 +12,7 @@ interface SettingsDeps {
 
 export function createSettingsPanel(deps: SettingsDeps): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel";
+  panel.className = "ss-panel ss-settings";
   panel.innerHTML = `
     <h3>Settings</h3>
     <div class="ss-subhead">World</div>

@@ -21,7 +21,7 @@ const SEED_OFFERS: ReadonlyArray<ItemId> = [600, 608, 616] as ItemId[];
 
 export function createShopMenu(deps: ShopDeps): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel";
+  panel.className = "ss-panel ss-shop";
   panel.innerHTML = `
     <h3>Shop</h3>
     <div class="ss-subhead">Seeds</div>

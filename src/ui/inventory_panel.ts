@@ -7,7 +7,7 @@ import { makeWindow, type UiWindow } from "./window";
 
 export function createInventoryPanel(parent: HTMLElement, inventory: Inventory): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel";
+  panel.className = "ss-panel ss-inventory";
   panel.innerHTML = `<h3>Inventory</h3><div data-field="rows"></div>`;
   parent.appendChild(panel);
 
