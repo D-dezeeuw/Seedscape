@@ -179,6 +179,22 @@ export function injectUiStyles(): void {
       text-decoration: underline;
     }
 
+    /* Faced-tile reticle while possessed. Bright outline + subtle inner
+       glow so the player can see exactly which tile their action will
+       hit. Pointer-events off — the canvas underneath still receives
+       drag and zoom; tile-action clicks are guarded separately. */
+    .ss-faced-reticle {
+      position: fixed;
+      top: 0;
+      left: 0;
+      box-sizing: border-box;
+      border: 2px solid rgba(232, 196, 104, 0.95);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5) inset;
+      pointer-events: none;
+      z-index: 4;
+      will-change: transform, width, height;
+    }
+
     /* Floating name labels above entities. Positioned per-frame from
        world coords; pointer-events off so clicks pass through to the
        canvas underneath. */

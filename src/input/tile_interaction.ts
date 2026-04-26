@@ -49,6 +49,11 @@ export interface TileInteractionDeps {
   entityManager?: EntityManager;
   onEntityClick?: (entity: Entity) => void;
   onEdit?: (chunkX: number, chunkY: number) => void;
+  // Returns true while the player is possessing an avatar. In that mode
+  // canvas clicks must NOT trigger tile actions — actions come from the
+  // avatar via the action key. Drag-pan and click-to-pick-entity remain
+  // available so the player can still peek and switch possession target.
+  isPossessing?: () => boolean;
 }
 
 export function attachTileInteraction(deps: TileInteractionDeps): () => void {
@@ -86,9 +91,12 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
       tileWorldSize,
     );
 
-    // Pan-mode: try to hit an entity. Otherwise fall through silently —
-    // Pan doesn't act on tiles.
-    if (tool.current === "none") {
+    // Pan-mode (tool === "none") OR possess-mode: clicks pick an entity
+    // and never fire tile actions. Possess-mode actions come from the
+    // avatar via the action key; clicking the world while possessed must
+    // not act, but clicking another villager to switch the selection
+    // (and re-target possession) is still useful so we keep the picker.
+    if (tool.current === "none" || deps.isPossessing?.()) {
       if (deps.entityManager && deps.onEntityClick) {
         const worldX = pick.worldTileX + 0.5;
         const worldY = pick.worldTileY + 0.5;

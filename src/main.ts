@@ -21,6 +21,7 @@ import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
+import { FacedTileReticle } from "./ui/faced_tile_reticle";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
@@ -221,10 +222,12 @@ async function bootstrap(): Promise<void> {
     tileWorldSize: TILE_WORLD_SIZE,
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
+    isPossessing: () => possession.isPossessing(),
   });
 
   const detachHud = createHud(document.body, player);
   const entityLabels = new EntityLabels(document.body);
+  const facedReticle = new FacedTileReticle(document.body);
   const detachInfo = createTileInfo({
     parent: document.body,
     canvas,
@@ -442,6 +445,13 @@ async function bootstrap(): Promise<void> {
     renderer.draw(camera.viewProjection, t);
     entityRenderer.draw(entityManager.iterate(), camera.viewProjection, selectedEntityId);
     entityLabels.update(entityManager.iterate(), camera, canvas.clientWidth, canvas.clientHeight);
+    facedReticle.update(
+      possession,
+      camera,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      TILE_WORLD_SIZE,
+    );
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -472,6 +482,7 @@ async function bootstrap(): Promise<void> {
       detachLevelUp();
       toaster.destroy();
       entityLabels.destroy();
+      facedReticle.destroy();
       entityRenderer.destroy();
       generationPool.terminate();
       simulationPool.terminate();
