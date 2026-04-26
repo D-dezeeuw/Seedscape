@@ -34,6 +34,11 @@ export interface BuildingDef {
   // priced to be reachable from a few NPC orders' worth of wheat.
   placementCost: number;
   unlockId: string; // matches state/unlocks.ts UnlockDef ids
+  // Passive buildings (containers — crate, dispenser) have no sim cycle
+  // and don't tick. The sim_pipeline branches off this flag so a
+  // cycleTime=0 entry doesn't trigger an immediate "production complete"
+  // event. The shop and placement code treat passive defs identically.
+  passive?: boolean;
 }
 
 const PHASE_4_BUILDINGS: ReadonlyArray<BuildingDef> = [
@@ -64,6 +69,37 @@ const PHASE_4_BUILDINGS: ReadonlyArray<BuildingDef> = [
     queueSize: 8,
     placementCost: 200,
     unlockId: "building.bakery",
+  },
+  // Passive containers — no sim cycle, contents tracked in CrateStore.
+  // input/output fields are only filled to satisfy the type; sim_pipeline
+  // skips passive defs so they're never read.
+  {
+    id: 220,
+    name: "crate",
+    displayName: "Storage Crate",
+    inputItem: ITEM_IDS.WHEAT,
+    inputQuantity: 0,
+    outputItem: ITEM_IDS.WHEAT,
+    outputQuantity: 0,
+    cycleTime: 0,
+    queueSize: 0,
+    placementCost: 30,
+    unlockId: "building.crate",
+    passive: true,
+  },
+  {
+    id: 221,
+    name: "seed_dispenser",
+    displayName: "Seed Dispenser",
+    inputItem: ITEM_IDS.WHEAT_SEED,
+    inputQuantity: 0,
+    outputItem: ITEM_IDS.WHEAT_SEED,
+    outputQuantity: 0,
+    cycleTime: 0,
+    queueSize: 0,
+    placementCost: 60,
+    unlockId: "building.seed_dispenser",
+    passive: true,
   },
 ];
 

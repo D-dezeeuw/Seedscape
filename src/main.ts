@@ -15,7 +15,7 @@ import { LivingEntity } from "./state/entities/living_entity";
 import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
-import { ITEM_IDS } from "./state/items";
+import { ITEM_IDS, type ItemId } from "./state/items";
 import { JobEmitter } from "./state/job_emitter";
 import { JobBoard } from "./state/jobs";
 import { OrderBook } from "./state/orders";
@@ -23,6 +23,7 @@ import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
 import { FacedTileReticle } from "./ui/faced_tile_reticle";
@@ -51,8 +52,9 @@ import {
 import { ChunkManager } from "./world/chunk_manager";
 import { chunkKey, visibleChunkRect } from "./world/coords";
 import { CrateStore } from "./world/farming/crate";
+import { restockAutoContainers } from "./world/farming/restock";
 import { applySimDelta } from "./world/farming/sim_pipeline";
-import { harvestTile, waterTile } from "./world/farming/tile_actions";
+import { harvestTile, plantSeed, waterTile } from "./world/farming/tile_actions";
 import { buildChunkMask, isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
@@ -154,7 +156,7 @@ async function bootstrap(): Promise<void> {
   const entityManager = new EntityManager();
   const crates = new CrateStore();
   const jobBoard = new JobBoard();
-  const jobEmitter = new JobEmitter({ board: jobBoard, chunks: chunkManager });
+  const jobEmitter = new JobEmitter({ board: jobBoard, chunks: chunkManager, crates });
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.
@@ -247,6 +249,22 @@ async function bootstrap(): Promise<void> {
     },
   });
 
+  const containerWindow = createContainerWindow({
+    parent: document.body,
+    inventory,
+    crates,
+    readTileId: (x, y) => {
+      const cx = Math.floor(x / CHUNK_SIZE);
+      const cy = Math.floor(y / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return null;
+      const lx = x - cx * CHUNK_SIZE;
+      const ly = y - cy * CHUNK_SIZE;
+      return rec.data.tileId[tileIndex(lx, ly)] ?? 0;
+    },
+    toast: (msg) => toaster.show(msg),
+  });
+
   const detachInteraction = attachTileInteraction({
     canvas,
     camera,
@@ -257,6 +275,7 @@ async function bootstrap(): Promise<void> {
     tileWorldSize: TILE_WORLD_SIZE,
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
+    onContainerClick: (x, y) => containerWindow.showFor(x, y),
     isPossessing: () => possession.isPossessing(),
   });
 
@@ -296,6 +315,7 @@ async function bootstrap(): Promise<void> {
         entityManager,
         camera,
         chunkManager,
+        crates,
         toast: (msg) => toaster.show(msg),
       })
     : null;
@@ -391,6 +411,9 @@ async function bootstrap(): Promise<void> {
     // cadence. Settlers consume from the same board on the main-thread
     // entity tick — the emitter doesn't care who's listening.
     jobEmitter.tick(tick);
+    // Auto-restock dispensers from the player's inventory once per sim
+    // tick. Cheap (skips early when no auto-containers loaded).
+    restockAutoContainers(chunkManager, inventory, crates);
 
     for (const key of getSimulatableChunkKeys(chunkManager)) {
       if (inFlightKeys.has(key)) continue;
@@ -492,6 +515,19 @@ async function bootstrap(): Promise<void> {
       const lx = wx - cx * CHUNK_SIZE;
       const ly = wy - cy * CHUNK_SIZE;
       const r = waterTile(rec.data, lx, ly);
+      if (r.applied) {
+        chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+      }
+      return r.applied;
+    },
+    plantSeedAt(wx, wy, seedItem) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = plantSeed(rec.data, lx, ly, seedItem as ItemId);
       if (r.applied) {
         chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
       }

@@ -12,6 +12,7 @@
 // reach into other entities or globals. Tests construct a Villager + a
 // fake services object and call tick() in a loop.
 
+import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
 import {
   CROP_STAGE_HARVESTABLE,
@@ -20,13 +21,19 @@ import {
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
 import { isWaterSource } from "../../world/walkability";
+import type { ItemId } from "../items";
 import {
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_SEED,
   JOB_KIND_HAUL_WATER,
+  JOB_KIND_PLANT_SEED,
   JOB_KIND_WATER_CROP,
   type Job,
   type JobKind,
 } from "../jobs";
+
+const TILE_FARMLAND_TILLED = 13;
+
 import type { EntityServices, EntityTickContext } from "./entity";
 import { MAX_WATER_RESERVE, type Villager } from "./villager";
 
@@ -155,12 +162,14 @@ export class VillagerJobController {
     const fromX = v.worldTileX();
     const fromY = v.worldTileY();
 
-    // Preference: if reserve > 0, both kinds are claimable. If reserve === 0,
-    // skip WATER_CROP (we'd just need to get water first) and prefer HARVEST.
-    const kinds: ReadonlyArray<JobKind> =
-      v.waterReserve > 0
-        ? [JOB_KIND_WATER_CROP, JOB_KIND_HARVEST_CROP, JOB_KIND_HAUL_WATER]
-        : [JOB_KIND_HARVEST_CROP, JOB_KIND_HAUL_WATER];
+    // Preference list: filter out kinds we can't fulfil right now. WATER
+    // requires reserve > 0; PLANT_SEED requires a seed in inventory. The
+    // claim picks the closest matching unclaimed job; subsequent
+    // lazy-spawn blocks below cover the case where the prerequisite
+    // (water reserve, carried seed) needs to be fetched first.
+    const kinds: JobKind[] = [JOB_KIND_HARVEST_CROP, JOB_KIND_HAUL_WATER, JOB_KIND_HAUL_SEED];
+    if (v.waterReserve > 0) kinds.push(JOB_KIND_WATER_CROP);
+    if (carriedSeedId(v) !== null) kinds.push(JOB_KIND_PLANT_SEED);
 
     let job = board.claim(v.id, { kinds, fromX, fromY });
 
@@ -194,20 +203,49 @@ export class VillagerJobController {
       }
     }
 
+    // Same lazy-spawn pattern for seeds: settler with no seed sees
+    // unclaimed PLANT_SEED jobs → spawn a HAUL_SEED to a container that
+    // holds seeds, claim it, do the trip, then on next idle we'll have
+    // a seed and PLANT_SEED becomes claimable for real.
+    if (!job && carriedSeedId(v) === null && hasUnclaimedPlantJob(board) && services.crates) {
+      const stock = services.crates.nearestContainerWithStock(tileWorld, fromX, fromY, (id) =>
+        isSeedItem(id),
+      );
+      if (stock) {
+        const id = board.enqueue({
+          kind: JOB_KIND_HAUL_SEED,
+          source: { x: stock.standing.x, y: stock.standing.y },
+          target: { x: stock.standing.x, y: stock.standing.y },
+          priority: 5,
+          payload: stock.itemId,
+        });
+        job = board.claim(v.id, { fromX, fromY });
+        if (!job || job.id !== id) {
+          if (job) board.release(job.id);
+          this.scheduleRetry(v, ctx);
+          return false;
+        }
+      }
+    }
+
     if (!job) {
       this.scheduleRetry(v, ctx);
       return false;
     }
 
-    // HARVEST_CROP: pick a destination crate now so we know where to
-    // deliver. If no crate exists, cancel the claim — without storage,
-    // we have nowhere to put produce. job.target stores the *standing*
-    // tile next to the crate; act_at_target scans neighbours for the
-    // CRATE_TILE_ID to find the crate itself.
+    // HARVEST_CROP: pick a destination container that accepts the produce
+    // (crate yes, dispenser no — dispensers only take seeds). If nothing
+    // qualifies, cancel the claim.
     if (job.kind === JOB_KIND_HARVEST_CROP) {
+      const produce = job.payload as ItemId | 0;
       const hit =
-        services.crates && services.tileWorld
-          ? services.crates.nearestCrateWithRoom(services.tileWorld, job.source.x, job.source.y)
+        services.crates && services.tileWorld && produce !== 0
+          ? services.crates.nearestContainerForDeposit(
+              services.tileWorld,
+              job.source.x,
+              job.source.y,
+              produce as ItemId,
+            )
           : null;
       if (!hit) {
         board.release(job.id);
@@ -215,6 +253,21 @@ export class VillagerJobController {
         return false;
       }
       job.target = hit.standing;
+    }
+
+    // PLANT_SEED claim: stamp the carried seed id into payload so
+    // actAtSource knows what to plant. We already filtered out
+    // PLANT_SEED above unless we're carrying a seed, so the lookup
+    // should always succeed; the explicit guard is here for the
+    // race where a sibling settler dropped our last seed mid-claim.
+    if (job.kind === JOB_KIND_PLANT_SEED) {
+      const seedId = carriedSeedId(v);
+      if (seedId === null) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      job.payload = seedId;
     }
 
     // Verify the source tile still matches what was emitted. Player
@@ -427,6 +480,42 @@ export class VillagerJobController {
         }
         break;
       }
+      case JOB_KIND_HAUL_SEED: {
+        // Settler stands next to a container; withdraw the seed kind
+        // recorded on the job. If the container ran dry mid-flight (e.g.
+        // another settler beat us to it), the act becomes a no-op and
+        // the next idle tick will spawn a fresh HAUL_SEED.
+        const seedId = job.payload as ItemId | 0;
+        if (seedId === 0 || !services.crates) break;
+        for (const n of fourNeighbours(job.source.x, job.source.y)) {
+          const t = tw.readTile(n.x, n.y);
+          if (!t) continue;
+          if (!containerForTile(t.tileId)) continue;
+          const taken = services.crates.withdraw(n.x, n.y, seedId as ItemId, 1);
+          if (taken > 0) v.pickup(seedId as ItemId, taken);
+          break;
+        }
+        break;
+      }
+      case JOB_KIND_PLANT_SEED: {
+        // Source == target == empty tilled tile. Drop one seed and call
+        // the tile action; if the tile got planted by someone else mid-
+        // flight the action returns false and the seed stays dropped on
+        // the floor (well, in carriedItems → waste). We re-read the tile
+        // first to avoid that case.
+        const seedId = job.payload as ItemId | 0;
+        if (seedId === 0) break;
+        const t = tw.readTile(job.source.x, job.source.y);
+        if (!t || t.tileId !== TILE_FARMLAND_TILLED || t.state !== 0) break;
+        const dropped = v.drop(seedId as ItemId, 1);
+        if (dropped === 0) break;
+        const planted = tw.plantSeedAt(job.source.x, job.source.y, seedId as ItemId);
+        if (!planted) {
+          // Refund the seed if the tile somehow rejected the plant.
+          v.pickup(seedId as ItemId, dropped);
+        }
+        break;
+      }
     }
   }
 
@@ -530,5 +619,34 @@ function sourceStillValid(job: Job, services: EntityServices): boolean {
       if (!crop) return false;
       return t.state >= CROP_STAGE_HARVESTABLE;
     }
+    case JOB_KIND_PLANT_SEED: {
+      // Tile must still be empty tilled farmland. If a player or another
+      // settler planted in the meantime, cancel.
+      const t = tw.readTile(job.source.x, job.source.y);
+      if (!t) return false;
+      return t.tileId === TILE_FARMLAND_TILLED && t.state === 0;
+    }
+    case JOB_KIND_HAUL_SEED: {
+      // Standing tile next to a container — walkability is enough; the
+      // settler re-derives the actual container at act time.
+      const t = tw.readTile(job.source.x, job.source.y);
+      return t !== null;
+    }
   }
+}
+
+// Helpers for new job kinds.
+
+function carriedSeedId(v: Villager): ItemId | null {
+  for (const [item] of v.carriedItems) {
+    if (isSeedItem(item)) return item;
+  }
+  return null;
+}
+
+function hasUnclaimedPlantJob(board: import("../jobs").JobBoard): boolean {
+  for (const j of board.all()) {
+    if (j.claimedBy === 0 && j.kind === JOB_KIND_PLANT_SEED) return true;
+  }
+  return false;
 }

@@ -159,6 +159,10 @@ function tileWorldFor(world: ReturnType<typeof buildBigWorld>): TileWorldAccess 
       const ly = wy - cy * CHUNK_SIZE;
       return waterTile(rec.data, lx, ly).applied;
     },
+    plantSeedAt() {
+      // Perf test never plants — no PLANT_SEED jobs are emitted.
+      return false;
+    },
     *allChunkRecords() {
       for (const [k, r] of world.chunks) yield [k, r];
     },

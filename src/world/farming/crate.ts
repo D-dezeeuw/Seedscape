@@ -12,8 +12,15 @@
 import type { ItemId } from "../../state/items";
 import { CHUNK_SIZE, type ChunkRecord, tileIndex } from "../chunk";
 import { isEntityWalkable } from "../walkability";
+import {
+  type ContainerDef,
+  containerForTile,
+  CRATE_TILE_ID as REGISTRY_CRATE_TILE_ID,
+} from "./container_registry";
 
-export const CRATE_TILE_ID = 220;
+// Re-exported from container_registry to keep existing imports working.
+// New code should import from container_registry directly.
+export const CRATE_TILE_ID = REGISTRY_CRATE_TILE_ID;
 
 // Sized to give settlers room to drop several harvest cycles before a player
 // has to clean up — but small enough that a runaway emitter doesn't dump a
@@ -102,22 +109,94 @@ export class CrateStore {
     }
   }
 
-  // Find the closest crate with available capacity, by Manhattan distance
-  // from (fromX, fromY), AND a walkable standing tile next to it. Walks
-  // loaded chunks for any tile with id CRATE_TILE_ID — that's the source
-  // of truth, not this store, since a freshly placed empty crate has no
-  // entry yet. Returns null if no crate has both space and a reachable
-  // standing tile.
-  nearestCrateWithRoom(
+  // Find the closest container that will accept `itemId`, has spare
+  // capacity, and exposes a walkable standing tile. Used by HARVEST jobs
+  // to route produce — passing the produce item id lets the dispenser
+  // (which only accepts seeds) reject naturally without callers needing
+  // to know which container types exist.
+  nearestContainerForDeposit(
     chunks: { allChunkRecords(): IterableIterator<[string, ChunkRecord]> },
     fromX: number,
     fromY: number,
-  ): { crate: { x: number; y: number }; standing: { x: number; y: number } } | null {
-    // Snapshot loaded chunks so per-candidate neighbour lookups don't
-    // re-walk the iterator.
+    itemId: ItemId,
+  ): {
+    tileId: number;
+    container: { x: number; y: number };
+    standing: { x: number; y: number };
+  } | null {
+    return this.scanContainers(chunks, fromX, fromY, (tileId, def, wx, wy) => {
+      if (!def.acceptsItem(itemId)) return false;
+      return this.totalAt(wx, wy) < CRATE_CAPACITY;
+    });
+  }
+
+  // Find the closest container that holds at least one item matching the
+  // predicate. Used by HAUL_SEED to find a dispenser (or crate) with seed
+  // stock. The predicate runs against item ids; the returned hit tells
+  // the caller which exact item kind is available so they can pick it up.
+  nearestContainerWithStock(
+    chunks: { allChunkRecords(): IterableIterator<[string, ChunkRecord]> },
+    fromX: number,
+    fromY: number,
+    itemMatches: (id: ItemId) => boolean,
+  ): {
+    tileId: number;
+    container: { x: number; y: number };
+    standing: { x: number; y: number };
+    itemId: ItemId;
+    count: number;
+  } | null {
+    let best: {
+      tileId: number;
+      container: { x: number; y: number };
+      standing: { x: number; y: number };
+      itemId: ItemId;
+      count: number;
+    } | null = null;
+    const bestDist = Number.POSITIVE_INFINITY;
+
+    const hit = this.scanContainers(chunks, fromX, fromY, (_tileId, _def, wx, wy) => {
+      const inner = this.contents.get(tileKeyOf(wx, wy));
+      if (!inner) return false;
+      for (const id of inner.keys()) {
+        if (itemMatches(id)) return true;
+      }
+      return false;
+    });
+
+    if (!hit) return null;
+    // Pick a stable item kind from the matching container — first key in
+    // insertion order. Keeps replays deterministic since Map preserves
+    // insertion order.
+    const inner = this.contents.get(tileKeyOf(hit.container.x, hit.container.y));
+    if (!inner) return null;
+    for (const [id, count] of inner) {
+      if (itemMatches(id)) {
+        best = { ...hit, itemId: id, count };
+        break;
+      }
+    }
+    void bestDist;
+    return best;
+  }
+
+  // Shared scan: walk every loaded chunk for tiles that pass
+  // isContainerTile, run `accept(tileId, def, wx, wy)`, return the
+  // closest accepted tile + a walkable standing neighbour. Encapsulates
+  // the chunk-snapshot + neighbour-walk dance the deposit and stock
+  // finders both need.
+  private scanContainers(
+    chunks: { allChunkRecords(): IterableIterator<[string, ChunkRecord]> },
+    fromX: number,
+    fromY: number,
+    accept: (tileId: number, def: ContainerDef, wx: number, wy: number) => boolean,
+  ): {
+    tileId: number;
+    container: { x: number; y: number };
+    standing: { x: number; y: number };
+  } | null {
     const snap = new Map<string, ChunkRecord>();
     for (const [key, rec] of chunks.allChunkRecords()) snap.set(key, rec);
-
     const tileIdAt = (wx: number, wy: number): number | null => {
       const cx = Math.floor(wx / CHUNK_SIZE);
       const cy = Math.floor(wy / CHUNK_SIZE);
@@ -128,7 +207,11 @@ export class CrateStore {
       return rec.data.tileId[ly * CHUNK_SIZE + lx] ?? 0;
     };
 
-    let best: { crate: { x: number; y: number }; standing: { x: number; y: number } } | null = null;
+    let best: {
+      tileId: number;
+      container: { x: number; y: number };
+      standing: { x: number; y: number };
+    } | null = null;
     let bestDist = Number.POSITIVE_INFINITY;
 
     for (const [key, record] of snap) {
@@ -137,11 +220,12 @@ export class CrateStore {
       const baseY = cy * CHUNK_SIZE;
       for (let ly = 0; ly < CHUNK_SIZE; ly++) {
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          if ((record.data.tileId[tileIndex(lx, ly)] ?? 0) !== CRATE_TILE_ID) continue;
+          const tid = record.data.tileId[tileIndex(lx, ly)] ?? 0;
+          const def = containerForTile(tid);
+          if (!def) continue;
           const wx = baseX + lx;
           const wy = baseY + ly;
-          if (this.totalAt(wx, wy) >= CRATE_CAPACITY) continue;
-          // Pick the closest walkable neighbour as the standing tile.
+          if (!accept(tid, def, wx, wy)) continue;
           const candidates = [
             { x: wx + 1, y: wy },
             { x: wx - 1, y: wy },
@@ -155,7 +239,7 @@ export class CrateStore {
             const dist = Math.abs(c.x - fromX) + Math.abs(c.y - fromY);
             if (dist < bestDist) {
               bestDist = dist;
-              best = { crate: { x: wx, y: wy }, standing: c };
+              best = { tileId: tid, container: { x: wx, y: wy }, standing: c };
             }
           }
         }

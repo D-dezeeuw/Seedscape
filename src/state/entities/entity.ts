@@ -82,6 +82,10 @@ export interface TileWorldAccess {
     worldTileY: number,
   ): { applied: boolean; produceItem?: number; yield?: number };
   waterAt(worldTileX: number, worldTileY: number): boolean;
+  // Plant a seed on an empty tilled tile. seedItem is the ItemId from
+  // the player's seed range (600..699). Returns whether it applied
+  // (false when the tile got planted by someone else mid-flight, etc.).
+  plantSeedAt(worldTileX: number, worldTileY: number, seedItem: number): boolean;
   // Iterate loaded chunks (for emitter, water-finder, crate scans).
   allChunkRecords(): IterableIterator<[string, import("../../world/chunk").ChunkRecord]>;
 }

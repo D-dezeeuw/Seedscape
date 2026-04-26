@@ -18,9 +18,9 @@ import {
 import { chunkKey } from "../../world/coords";
 import { CrateStore } from "../../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../../world/farming/crop_registry";
-import { harvestTile, setWaterLevel, waterTile } from "../../world/farming/tile_actions";
+import { harvestTile, plantSeed, setWaterLevel, waterTile } from "../../world/farming/tile_actions";
 import { buildChunkMask } from "../../world/walkability";
-import { ITEM_IDS } from "../items";
+import { ITEM_IDS, type ItemId } from "../items";
 import { JOB_KIND_HARVEST_CROP, JobBoard } from "../jobs";
 import type { EntityServices, EntityTickContext, TileWorldAccess } from "./entity";
 import { Villager } from "./villager";
@@ -138,6 +138,17 @@ function tileWorldFor(world: World, dirtyMarks: Set<string>): TileWorldAccess {
       const lx = wx - cx * CHUNK_SIZE;
       const ly = wy - cy * CHUNK_SIZE;
       const r = waterTile(rec.data, lx, ly);
+      if (r.applied) dirtyMarks.add(chunkKey(cx, cy));
+      return r.applied;
+    },
+    plantSeedAt(wx, wy, seedItem) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = world.chunks.get(chunkKey(cx, cy));
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = plantSeed(rec.data, lx, ly, seedItem as ItemId);
       if (r.applied) dirtyMarks.add(chunkKey(cx, cy));
       return r.applied;
     },
@@ -341,5 +352,53 @@ describe("VillagerJobController integration", () => {
     // Wander should have produced some movement.
     const moved = Math.abs(v.worldX() - startX) + Math.abs(v.worldY() - startY);
     expect(moved).toBeGreaterThan(0);
+  });
+
+  test("plant-seed completes via lazy haul-seed when settler starts empty", async () => {
+    // Setup: dispenser at (8, 8) stocked with wheat seeds, empty tilled
+    // tile at (3, 3), settler with empty inventory.
+    const chunk = world.chunks.get(chunkKey(0, 0))!;
+    chunk.data.tileId[tileIndex(3, 3)] = 13; // FARMLAND_TILLED
+    chunk.data.state[tileIndex(3, 3)] = 0;
+    chunk.data.tileId[tileIndex(8, 8)] = 221; // SEED_DISPENSER
+    world.crates.deposit(8, 8, ITEM_IDS.WHEAT_SEED, 3);
+
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(9, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, "P", {
+      x: 1,
+      y: 1,
+    });
+    expect(v.carriedTotal()).toBe(0);
+
+    // Emit a PLANT_SEED job (the controller resolves the seed kind at
+    // claim time from whatever the settler picks up via HAUL_SEED).
+    board.enqueue({
+      kind: 4, // JOB_KIND_PLANT_SEED
+      source: { x: 3, y: 3 },
+      target: { x: 3, y: 3 },
+      priority: 1,
+      payload: 0,
+    });
+
+    let sawHaulSeed = false;
+    let time = 0;
+    for (let i = 0; i < 500; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      for (const j of board.all()) {
+        if (j.kind === 5) sawHaulSeed = true; // JOB_KIND_HAUL_SEED
+      }
+      if (board.size() === 0 && v.jobs.isIdle()) break;
+    }
+
+    expect(sawHaulSeed).toBe(true);
+    expect(board.size()).toBe(0);
+    // The empty tilled tile is now a young wheat (base 100, stage 0).
+    expect(chunk.data.tileId[tileIndex(3, 3)]).toBe(100);
+    // Dispenser drained by 1 (settler picked up exactly one seed).
+    expect(world.crates.countAt(8, 8, ITEM_IDS.WHEAT_SEED)).toBe(2);
   });
 });

@@ -88,7 +88,7 @@ describe("CrateStore", () => {
     expect(Array.from(store.crates()).length).toBe(0);
   });
 
-  test("nearestCrateWithRoom finds closest by Manhattan distance", () => {
+  test("nearestContainerForDeposit finds closest by Manhattan distance", () => {
     const store = new CrateStore();
     const chunks = makeChunks([
       chunkWithCratesAt(0, 0, [
@@ -96,14 +96,12 @@ describe("CrateStore", () => {
         { lx: 15, ly: 0 },
       ]),
     ]);
-    const hit = store.nearestCrateWithRoom(chunks, 6, 6);
-    expect(hit?.crate).toEqual({ x: 5, y: 5 });
-    // Closest standing tile from (6, 6) is (6, 5) or (5, 6) — both
-    // Manhattan distance 1 from settler. Verify it's adjacent to the crate.
+    const hit = store.nearestContainerForDeposit(chunks, 6, 6, ITEM_IDS.WHEAT);
+    expect(hit?.container).toEqual({ x: 5, y: 5 });
     expect(Math.abs((hit?.standing.x ?? 0) - 5) + Math.abs((hit?.standing.y ?? 0) - 5)).toBe(1);
   });
 
-  test("nearestCrateWithRoom skips full crates", () => {
+  test("nearestContainerForDeposit skips full crates", () => {
     const store = new CrateStore();
     const chunks = makeChunks([
       chunkWithCratesAt(0, 0, [
@@ -111,26 +109,49 @@ describe("CrateStore", () => {
         { lx: 20, ly: 2 },
       ]),
     ]);
-    // Fill the close one to capacity.
     store.deposit(2, 2, ITEM_IDS.WHEAT, CRATE_CAPACITY);
-    const hit = store.nearestCrateWithRoom(chunks, 0, 2);
-    expect(hit?.crate).toEqual({ x: 20, y: 2 });
+    const hit = store.nearestContainerForDeposit(chunks, 0, 2, ITEM_IDS.WHEAT);
+    expect(hit?.container).toEqual({ x: 20, y: 2 });
   });
 
-  test("nearestCrateWithRoom returns null when no crate tiles exist", () => {
+  test("nearestContainerForDeposit returns null when no container tiles exist", () => {
     const store = new CrateStore();
     const chunks = makeChunks([chunkWithCratesAt(0, 0, [])]);
-    expect(store.nearestCrateWithRoom(chunks, 0, 0)).toBeNull();
+    expect(store.nearestContainerForDeposit(chunks, 0, 0, ITEM_IDS.WHEAT)).toBeNull();
   });
 
-  test("nearestCrateWithRoom returns null when crate has no walkable neighbour", () => {
+  test("nearestContainerForDeposit returns null when crate has no walkable neighbour", () => {
     const store = new CrateStore();
-    // Chunk has crate at (1,1) surrounded by water (the default fill).
     const data = allocChunkData();
     data.tileId[tileIndex(1, 1)] = CRATE_TILE_ID;
     const record: ChunkRecord = { data, flags: CHUNK_FLAG_DIRTY_RENDER };
     const chunks = makeChunks([[chunkKey(0, 0), record]]);
-    expect(store.nearestCrateWithRoom(chunks, 0, 0)).toBeNull();
+    expect(store.nearestContainerForDeposit(chunks, 0, 0, ITEM_IDS.WHEAT)).toBeNull();
+  });
+
+  test("nearestContainerForDeposit rejects dispenser when item is not a seed", () => {
+    const store = new CrateStore();
+    const data = allocChunkData();
+    for (let i = 0; i < data.tileId.length; i++) data.tileId[i] = 10; // grass
+    data.tileId[tileIndex(5, 5)] = 221; // dispenser
+    const record: ChunkRecord = { data, flags: CHUNK_FLAG_DIRTY_RENDER };
+    // Wheat (produce, 700) should be rejected by dispenser; no crate exists.
+    const chunks = makeChunks([[chunkKey(0, 0), record]]);
+    expect(store.nearestContainerForDeposit(chunks, 0, 0, ITEM_IDS.WHEAT)).toBeNull();
+  });
+
+  test("nearestContainerWithStock finds dispenser holding seeds", () => {
+    const store = new CrateStore();
+    const data = allocChunkData();
+    for (let i = 0; i < data.tileId.length; i++) data.tileId[i] = 10;
+    data.tileId[tileIndex(7, 7)] = 221;
+    store.deposit(7, 7, ITEM_IDS.WHEAT_SEED, 5);
+    const record: ChunkRecord = { data, flags: CHUNK_FLAG_DIRTY_RENDER };
+    const chunks = makeChunks([[chunkKey(0, 0), record]]);
+    const hit = store.nearestContainerWithStock(chunks, 0, 0, (id) => id === ITEM_IDS.WHEAT_SEED);
+    expect(hit?.container).toEqual({ x: 7, y: 7 });
+    expect(hit?.itemId).toBe(ITEM_IDS.WHEAT_SEED);
+    expect(hit?.count).toBe(5);
   });
 
   test("toJSON / loadFromJSON round-trip", () => {

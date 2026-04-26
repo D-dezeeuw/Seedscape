@@ -7,12 +7,15 @@ import {
   tileIndex,
 } from "../world/chunk";
 import { chunkKey } from "../world/coords";
+import { CrateStore } from "../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED } from "../world/farming/crop_registry";
 import { setWaterLevel } from "../world/farming/tile_actions";
+import { ITEM_IDS } from "./items";
 import { DEFAULT_EMITTER_PERIOD_TICKS, JobEmitter, WATER_THIRSTY_THRESHOLD } from "./job_emitter";
-import { JOB_KIND_HARVEST_CROP, JOB_KIND_WATER_CROP, JobBoard } from "./jobs";
+import { JOB_KIND_HARVEST_CROP, JOB_KIND_PLANT_SEED, JOB_KIND_WATER_CROP, JobBoard } from "./jobs";
 
 const WHEAT_BASE_ID = 100;
+const TILE_FARMLAND_TILLED = 13;
 
 interface FakeChunks {
   allChunkRecords(): IterableIterator<[string, ChunkRecord]>;
@@ -159,5 +162,68 @@ describe("JobEmitter", () => {
 
   test("default period matches the documented cadence constant", () => {
     expect(DEFAULT_EMITTER_PERIOD_TICKS).toBe(30);
+  });
+
+  test("emits PLANT_SEED for empty tilled tiles when seeds are stocked", () => {
+    const [, record] = chunkAt(0, 0);
+    record.data.tileId[tileIndex(2, 2)] = TILE_FARMLAND_TILLED;
+    record.data.state[tileIndex(2, 2)] = 0;
+    const board = new JobBoard();
+    const crates = new CrateStore();
+    crates.deposit(10, 10, ITEM_IDS.WHEAT_SEED, 5);
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      crates,
+    });
+    expect(emitter.scanAll()).toBe(1);
+    const jobs = Array.from(board.all());
+    expect(jobs[0]?.kind).toBe(JOB_KIND_PLANT_SEED);
+    expect(jobs[0]?.source).toEqual({ x: 2, y: 2 });
+  });
+
+  test("does not emit PLANT_SEED when no seeds are stocked anywhere", () => {
+    const [, record] = chunkAt(0, 0);
+    record.data.tileId[tileIndex(2, 2)] = TILE_FARMLAND_TILLED;
+    record.data.state[tileIndex(2, 2)] = 0;
+    const board = new JobBoard();
+    const crates = new CrateStore();
+    // Crate exists but holds only produce — should not enable PLANT_SEED.
+    crates.deposit(10, 10, ITEM_IDS.WHEAT, 5);
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      crates,
+    });
+    expect(emitter.scanAll()).toBe(0);
+  });
+
+  test("does not emit PLANT_SEED when crates argument is omitted", () => {
+    const [, record] = chunkAt(0, 0);
+    record.data.tileId[tileIndex(2, 2)] = TILE_FARMLAND_TILLED;
+    record.data.state[tileIndex(2, 2)] = 0;
+    const board = new JobBoard();
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+    });
+    expect(emitter.scanAll()).toBe(0);
+  });
+
+  test("PLANT_SEED dedup: re-scan does not duplicate", () => {
+    const [, record] = chunkAt(0, 0);
+    record.data.tileId[tileIndex(2, 2)] = TILE_FARMLAND_TILLED;
+    record.data.state[tileIndex(2, 2)] = 0;
+    const board = new JobBoard();
+    const crates = new CrateStore();
+    crates.deposit(10, 10, ITEM_IDS.WHEAT_SEED, 5);
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      crates,
+    });
+    emitter.scanAll();
+    expect(emitter.scanAll()).toBe(0);
+    expect(board.size()).toBe(1);
   });
 });

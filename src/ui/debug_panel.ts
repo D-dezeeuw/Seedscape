@@ -16,7 +16,8 @@ import {
   tileIndex,
 } from "../world/chunk";
 import type { ChunkManager } from "../world/chunk_manager";
-import { CRATE_TILE_ID } from "../world/farming/crate";
+import { SEED_DISPENSER_TILE_ID } from "../world/farming/container_registry";
+import { CRATE_TILE_ID, type CrateStore } from "../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../world/farming/crop_registry";
 import { makeWindow, type UiWindow } from "./window";
 
@@ -27,6 +28,7 @@ interface DebugPanelDeps {
   entityManager: EntityManager;
   camera: Camera;
   chunkManager: ChunkManager;
+  crates: CrateStore;
   // Hook for the toaster so the user gets feedback when stress actions run
   // (placing crops, spawning settlers — these are silent otherwise).
   toast?: (message: string) => void;
@@ -34,6 +36,7 @@ interface DebugPanelDeps {
 
 const WHEAT_BASE_ID = 100;
 const TILE_DRY_GRASS = 10;
+const TILE_FARMLAND_TILLED = 13;
 
 export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
   const panel = document.createElement("div");
@@ -123,7 +126,7 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
       case "stress-setup": {
         const placed = setupStressFarm(deps);
         deps.toast?.(
-          `Stress farm: ${placed.crops} ripe crops, ${placed.crates} crates around camera`,
+          `Stress farm: ${placed.crops} ripe + ${placed.tilled} empty tilled, ${placed.crates} crates, ${placed.dispensers} dispenser`,
         );
         return;
       }
@@ -162,7 +165,12 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
 // The placements only modify chunks that already exist in the cache —
 // uncached chunks are silently skipped (the camera should be on them
 // already, so this rarely matters).
-function setupStressFarm(deps: DebugPanelDeps): { crops: number; crates: number } {
+function setupStressFarm(deps: DebugPanelDeps): {
+  crops: number;
+  tilled: number;
+  crates: number;
+  dispensers: number;
+} {
   const cx0 = Math.floor(deps.camera.x);
   const cy0 = Math.floor(deps.camera.y);
   const dirty = new Set<string>();
@@ -183,15 +191,18 @@ function setupStressFarm(deps: DebugPanelDeps): { crops: number; crates: number 
   };
 
   let crops = 0;
-  // 16×16 zone, every other tile gets a crop. Stagger by row so the
-  // pattern doesn't form solid blocks (which would block paths).
+  let tilled = 0;
+  // 16×16 zone, alternating ripe wheat (even cells) + empty tilled
+  // (odd cells). Empty tilled tiles trigger PLANT_SEED jobs so settlers
+  // exercise the haul-seed → plant flow alongside harvest.
   for (let dy = -8; dy < 8; dy++) {
     for (let dx = -8; dx < 8; dx++) {
-      if ((dx + dy) % 2 !== 0) continue;
-      // Lay walkable grass first, then drop the crop. Avoids landing a
-      // crop on top of e.g. water and getting an unwalkable mess.
       writeTile(cx0 + dx, cy0 + dy, TILE_DRY_GRASS);
-      if (writeTile(cx0 + dx, cy0 + dy, WHEAT_BASE_ID, CROP_STAGE_HARVESTABLE)) crops++;
+      if ((dx + dy) % 2 === 0) {
+        if (writeTile(cx0 + dx, cy0 + dy, WHEAT_BASE_ID, CROP_STAGE_HARVESTABLE)) crops++;
+      } else {
+        if (writeTile(cx0 + dx, cy0 + dy, TILE_FARMLAND_TILLED, 0)) tilled++;
+      }
     }
   }
 
@@ -203,8 +214,6 @@ function setupStressFarm(deps: DebugPanelDeps): { crops: number; crates: number 
     { x: cx0 + 10, y: cy0 + 10 },
   ];
   for (const p of cratePositions) {
-    // Crate sits on a building-range tile; surround it with grass so
-    // settlers can stand on a neighbour to deposit.
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue;
@@ -214,14 +223,33 @@ function setupStressFarm(deps: DebugPanelDeps): { crops: number; crates: number 
     if (writeTile(p.x, p.y, CRATE_TILE_ID)) crates++;
   }
 
-  // Mark every touched chunk dirty for both render + sim; the manager's
-  // hook fires onChunkMutated which pushes the new walkability mask into
-  // the pathfinding worker.
+  // One seed dispenser, pre-stocked. Auto-restock will keep topping it
+  // up from the player's inventory each sim tick — we also push a stack
+  // of seeds into the player's inventory directly so the autonomy loop
+  // doesn't stall waiting for the shop.
+  let dispensers = 0;
+  const dispenserPos = { x: cx0, y: cy0 - 10 };
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      writeTile(dispenserPos.x + dx, dispenserPos.y + dy, TILE_DRY_GRASS);
+    }
+  }
+  if (writeTile(dispenserPos.x, dispenserPos.y, SEED_DISPENSER_TILE_ID)) {
+    dispensers++;
+    // Pre-stock so the very first PLANT_SEED claim succeeds, instead of
+    // waiting a full sim tick for the auto-restock pass.
+    deps.crates.deposit(dispenserPos.x, dispenserPos.y, ITEM_IDS.WHEAT_SEED, 20);
+    // Also pad the player inventory so the dispenser keeps filling as
+    // settlers drain it.
+    deps.inventory.add(ITEM_IDS.WHEAT_SEED, 200);
+  }
+
   for (const key of dirty) {
     const [cx, cy] = key.split(",").map(Number) as [number, number];
     deps.chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
   }
-  return { crops, crates };
+  return { crops, tilled, crates, dispensers };
 }
 
 function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {

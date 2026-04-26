@@ -15,13 +15,23 @@
 // constant-time scan over <300 jobs is well below the per-chunk tile loop.
 
 import { CHUNK_SIZE, type ChunkRecord, tileIndex } from "../world/chunk";
+import { isSeedItem } from "../world/farming/container_registry";
+import type { CrateStore } from "../world/farming/crate";
 import {
   CROP_STAGE_HARVESTABLE,
   CROP_STATE_WILTED,
   cropForTile,
 } from "../world/farming/crop_registry";
 import { getWaterLevel } from "../world/farming/tile_actions";
-import { JOB_KIND_HARVEST_CROP, JOB_KIND_WATER_CROP, type JobBoard } from "./jobs";
+import { ITEM_IDS, type ItemId } from "./items";
+import {
+  JOB_KIND_HARVEST_CROP,
+  JOB_KIND_PLANT_SEED,
+  JOB_KIND_WATER_CROP,
+  type JobBoard,
+} from "./jobs";
+
+const TILE_FARMLAND_TILLED = 13;
 
 // Crops with water at or below this level are considered thirsty enough
 // that a WATER_CROP job is worth emitting. WATER_DECAY_INTERVAL drains by 1
@@ -55,16 +65,23 @@ function parseChunkKey(key: string): [number, number] {
 export class JobEmitter {
   private readonly board: JobBoard;
   private readonly chunks: ChunkSource;
+  // Optional CrateStore reference. When provided, the emitter only
+  // spawns PLANT_SEED jobs while at least one container holds a seed —
+  // there's no point queueing planting work the settlers can't fulfil.
+  // Tests that don't care about planting can omit this.
+  private readonly crates: CrateStore | undefined;
   private readonly period: number;
   private lastScanTick = -Infinity;
 
   constructor(opts: {
     board: JobBoard;
     chunks: ChunkSource;
+    crates?: CrateStore;
     periodTicks?: number;
   }) {
     this.board = opts.board;
     this.chunks = opts.chunks;
+    this.crates = opts.crates;
     this.period = opts.periodTicks ?? DEFAULT_EMITTER_PERIOD_TICKS;
   }
 
@@ -81,6 +98,12 @@ export class JobEmitter {
   // job set is on the board the moment a save loads, not 30 ticks later.
   scanAll(): number {
     let emitted = 0;
+    // Pre-compute "is any seed available?" once per scan; it gates every
+    // PLANT_SEED emission. Without this each empty tilled tile would walk
+    // the crate store. The result is allowed to go stale within a scan —
+    // by the next scan the answer will be re-computed.
+    const seedsAvailable = this.crates ? hasAnySeed(this.crates) : false;
+
     for (const [key, record] of this.chunks.allChunkRecords()) {
       const [cx, cy] = parseChunkKey(key);
       const baseX = cx * CHUNK_SIZE;
@@ -91,12 +114,30 @@ export class JobEmitter {
           if (emitted >= MAX_JOBS_PER_SCAN) return emitted;
           const i = tileIndex(lx, ly);
           const tileId = data.tileId[i] ?? 0;
+          const wx = baseX + lx;
+          const wy = baseY + ly;
+
+          // Empty tilled farmland: candidate for PLANT_SEED.
+          if (tileId === TILE_FARMLAND_TILLED && (data.state[i] ?? 0) === 0) {
+            if (!seedsAvailable) continue;
+            if (this.board.hasJobAt(JOB_KIND_PLANT_SEED, wx, wy)) continue;
+            this.board.enqueue({
+              kind: JOB_KIND_PLANT_SEED,
+              source: { x: wx, y: wy },
+              target: { x: wx, y: wy },
+              priority: 1,
+              // Specific seed item is resolved at claim time — settlers
+              // grab whatever's currently in the nearest container.
+              payload: 0,
+            });
+            emitted++;
+            continue;
+          }
+
           const crop = cropForTile(tileId);
           if (!crop) continue;
           const state = data.state[i] ?? 0;
           if (state === CROP_STATE_WILTED) continue;
-          const wx = baseX + lx;
-          const wy = baseY + ly;
 
           if (state >= CROP_STAGE_HARVESTABLE) {
             if (!this.board.hasJobAt(JOB_KIND_HARVEST_CROP, wx, wy)) {
@@ -131,4 +172,20 @@ export class JobEmitter {
     }
     return emitted;
   }
+}
+
+// True if any container has at least one seed-range item. Cheap: walks
+// CrateStore.crates() and probes each entry, stopping at the first hit.
+function hasAnySeed(crates: CrateStore): boolean {
+  // CrateStore exposes per-tile totals but not per-item iteration. Use
+  // the same probe set as container_window — every seed id we currently
+  // ship. When the seed range grows, swap for an itemsAt() iterator.
+  const seedProbe: ItemId[] = [ITEM_IDS.WHEAT_SEED, ITEM_IDS.CARROT_SEED, ITEM_IDS.CORN_SEED];
+  for (const c of crates.crates()) {
+    for (const id of seedProbe) {
+      if (!isSeedItem(id)) continue;
+      if (crates.countAt(c.x, c.y, id) > 0) return true;
+    }
+  }
+  return false;
 }

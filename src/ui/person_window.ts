@@ -15,7 +15,9 @@ import { LivingEntity, type MemoryEvent } from "../state/entities/living_entity"
 import { Villager } from "../state/entities/villager";
 import {
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_SEED,
   JOB_KIND_HAUL_WATER,
+  JOB_KIND_PLANT_SEED,
   JOB_KIND_WATER_CROP,
   type JobKind,
 } from "../state/jobs";
@@ -186,6 +188,10 @@ export function jobKindLabel(kind: JobKind): string {
       return "Water crop";
     case JOB_KIND_HARVEST_CROP:
       return "Harvest crop";
+    case JOB_KIND_PLANT_SEED:
+      return "Plant seed";
+    case JOB_KIND_HAUL_SEED:
+      return "Haul seed";
   }
 }
 

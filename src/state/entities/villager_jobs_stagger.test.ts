@@ -161,6 +161,10 @@ function tileWorldFor(world: ReturnType<typeof buildWorld>): TileWorldAccess {
       const ly = wy - cy * CHUNK_SIZE;
       return waterTile(rec.data, lx, ly).applied;
     },
+    plantSeedAt() {
+      // Stagger test never plants — only HARVEST jobs are exercised.
+      return false;
+    },
     *allChunkRecords() {
       for (const [k, r] of world.chunks) yield [k, r];
     },
@@ -299,12 +303,10 @@ describe("settler claim stagger", () => {
       // Use fixed ids so determinism is verifiable.
       for (let i = 0; i < 30; i++) {
         em.add(
-          new Villager(
-            i + 1,
-            { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
-            `S${i}`,
-            { x: 0, y: 0 },
-          ),
+          new Villager(i + 1, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, `S${i}`, {
+            x: 0,
+            y: 0,
+          }),
         );
       }
 

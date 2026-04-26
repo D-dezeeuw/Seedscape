@@ -238,6 +238,17 @@ export function injectUiStyles(): void {
     }
     .ss-row span:first-child { color: #a0b3c0; }
     .ss-empty { color: #6b7d88; font-style: italic; }
+    .ss-meta { color: #6b7d88; font-size: 0.85em; margin-bottom: 4px; }
+    .ss-row-actions { display: inline-flex; gap: 4px; align-items: center; }
+    .ss-row-count {
+      color: #e8eaed; min-width: 28px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .ss-btn-tight {
+      padding: 1px 6px;
+      font-size: 0.85em;
+    }
+    .ss-container-window { min-width: 280px; }
     .ss-dim { color: #6b7d88; }
     .ss-coin { color: #e8c468; }
     .ss-xpbar {

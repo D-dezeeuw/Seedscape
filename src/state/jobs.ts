@@ -22,10 +22,21 @@ import type { ItemId } from "./items";
 export const JOB_KIND_HAUL_WATER = 1;
 export const JOB_KIND_WATER_CROP = 2;
 export const JOB_KIND_HARVEST_CROP = 3;
+// PLANT_SEED: empty tilled tile, settler walks there with a seed and
+// plants. Emitted by the periodic scan whenever tilled tiles exist AND
+// at least one container has seeds.
+export const JOB_KIND_PLANT_SEED = 4;
+// HAUL_SEED: settler-spawned (not emitted by the world scan), parallel
+// to HAUL_WATER. Settler claims PLANT_SEED with empty inventory →
+// spawns HAUL_SEED to a container that has seeds → withdraws → returns
+// to claim PLANT_SEED for real.
+export const JOB_KIND_HAUL_SEED = 5;
 export type JobKind =
   | typeof JOB_KIND_HAUL_WATER
   | typeof JOB_KIND_WATER_CROP
-  | typeof JOB_KIND_HARVEST_CROP;
+  | typeof JOB_KIND_HARVEST_CROP
+  | typeof JOB_KIND_PLANT_SEED
+  | typeof JOB_KIND_HAUL_SEED;
 
 export interface Job {
   id: number;
