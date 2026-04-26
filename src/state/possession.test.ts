@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { Villager } from "./entities/villager";
-import { PossessionController } from "./possession";
+import { entityCenter, PossessionController } from "./possession";
 
 const POS = { chunkX: 0, chunkY: 0, localX: 4, localY: 5 };
 const HOME = { x: 0, y: 0 };
@@ -102,5 +102,39 @@ describe("PossessionController", () => {
     off();
     p.enter(new Villager(1, POS, "A", HOME));
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+describe("entityCenter", () => {
+  test("returns world-space center (entity worldX/Y + 0.5 on both axes)", () => {
+    // worldX = chunkX*32 + localX, +0.5 gives the visual center.
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.0, localY: 5.0 },
+      "T",
+      { x: 0, y: 0 },
+    );
+    expect(entityCenter(v)).toEqual({ x: 4.5, y: 5.5 });
+  });
+
+  test("respects sub-tile localX/localY", () => {
+    const v = new Villager(
+      1,
+      { chunkX: 0, chunkY: 0, localX: 4.25, localY: 5.75 },
+      "T",
+      { x: 0, y: 0 },
+    );
+    expect(entityCenter(v)).toEqual({ x: 4.75, y: 6.25 });
+  });
+
+  test("respects chunk offsets (negative chunks)", () => {
+    const v = new Villager(
+      1,
+      { chunkX: -1, chunkY: 0, localX: 31.0, localY: 0.0 },
+      "T",
+      { x: 0, y: 0 },
+    );
+    // worldX = -32 + 31 = -1, +0.5 = -0.5.
+    expect(entityCenter(v)).toEqual({ x: -0.5, y: 0.5 });
   });
 });

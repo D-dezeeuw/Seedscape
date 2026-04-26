@@ -13,6 +13,15 @@
 
 import type { Entity } from "./entities/entity";
 
+// World-space center of the tile an entity currently occupies. Entities
+// store position as the bottom-left corner (worldX/worldY); rendering and
+// camera follow want the visual center, which is +0.5 on both axes.
+// Centralized here so the camera can't drift away from the visual disc
+// because one call site forgot the offset.
+export function entityCenter(entity: Entity): { x: number; y: number } {
+  return { x: entity.worldX() + 0.5, y: entity.worldY() + 0.5 };
+}
+
 export type PossessionMode = "god" | "possess";
 
 export interface PossessionSnapshot {

@@ -17,7 +17,7 @@ import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
-import { PossessionController } from "./state/possession";
+import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { createDebugPanel } from "./ui/debug_panel";
@@ -184,8 +184,9 @@ async function bootstrap(): Promise<void> {
   const detachPossession = possession.subscribe((snap) => {
     if (snap.mode === "possess" && snap.entity) {
       const ent = snap.entity;
-      camera.panTo(ent.worldX(), ent.worldY());
-      camera.followEntity(() => ({ x: ent.worldX(), y: ent.worldY() }));
+      const center = entityCenter(ent);
+      camera.panTo(center.x, center.y);
+      camera.followEntity(() => entityCenter(ent));
     } else {
       camera.unfollow();
       // Drop any keys the player was holding when possession ended —
@@ -212,18 +213,6 @@ async function bootstrap(): Promise<void> {
       selectedEntityId = null;
     },
   });
-
-  // ESC priority: close any open window first; only when nothing is
-  // open does ESC release possession. Window-closing handlers in
-  // toolbar.ts and person_window.ts call preventDefault when they
-  // actually close something, so checking defaultPrevented here lets
-  // them win without coupling to their internals.
-  const onEscKey = (e: KeyboardEvent): void => {
-    if (e.key !== "Escape") return;
-    if (e.defaultPrevented) return;
-    if (possession.isPossessing()) possession.exit();
-  };
-  window.addEventListener("keydown", onEscKey);
 
   const detachInteraction = attachTileInteraction({
     canvas,
@@ -283,6 +272,21 @@ async function bootstrap(): Promise<void> {
     tool,
     windows: toolbarWindows,
   });
+
+  // ESC priority — registered AFTER all UI keydown listeners so it runs
+  // last in the DOM dispatch order. Window-closing handlers (toolbar,
+  // person_window) call preventDefault when they actually close
+  // something; this listener checks defaultPrevented and only exits
+  // possession when nothing else consumed the event. Order matters:
+  // registering this earlier breaks the priority chain because
+  // defaultPrevented is read before later handlers had a chance to set
+  // it. Verified by escape_priority.test.ts.
+  const onEscKey = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape") return;
+    if (e.defaultPrevented) return;
+    if (possession.isPossessing()) possession.exit();
+  };
+  window.addEventListener("keydown", onEscKey);
 
   // Exit-possession FAB. Mirrors ESC for touch users + makes the
   // current mode visually obvious. Hidden in god mode; shown while
