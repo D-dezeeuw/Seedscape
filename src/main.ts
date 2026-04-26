@@ -170,6 +170,7 @@ async function bootstrap(): Promise<void> {
     camera,
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
+    entityManager,
   });
 
   // Toolbar-managed windows. They start hidden; the toolbar opens/closes them.
