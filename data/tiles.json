@@ -29,6 +29,7 @@
     { "id": 22, "name": "barren_stone" },
     { "id": 23, "name": "cliff_face" },
     { "id": 24, "name": "gravel" },
+    { "id": 25, "name": "beach_sand" },
     { "id": 30, "name": "swamp_water" },
     { "id": 31, "name": "mudflat" },
     { "id": 32, "name": "deltaic_soil" },

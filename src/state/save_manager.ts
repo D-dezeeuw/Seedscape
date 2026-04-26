@@ -13,8 +13,12 @@ import type { Player, PlayerSnapshot } from "./player";
 
 // 1 → 2 (Phase 4): added orders + gameTimeSec.
 // 2 → 3 (Phase 5): added entities (Villager / Pet / Mount).
+// 3 → 4 (Worldgen v2): pipeline rewrite — pristine chunks would re-
+//   generate against new tile shapes, leaving player-modified chunks
+//   visually disjoint at their borders. Cleanest is to drop legacy
+//   saves so the world re-emerges coherent.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export interface SavedChunk {
   chunkX: number;

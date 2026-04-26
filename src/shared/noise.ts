@@ -107,3 +107,23 @@ export function fbm2(noise: Noise2D, x: number, y: number, octaves: number): num
   }
   return sum / norm;
 }
+
+// Domain warp — perturb (x, y) by independent noise fields before sampling
+// the main height function. Breaks the symmetric "swirly blob" look that
+// raw simplex produces; gives organic shorelines and continent shapes.
+//
+// Two separate Noise2D instances (one per axis) keeps the warp fully
+// decorrelated from the height field. Strength is in the same units as
+// (x, y) — typically a few tiles for chunked terrain.
+export function domainWarp(
+  x: number,
+  y: number,
+  warpX: Noise2D,
+  warpY: Noise2D,
+  strength: number,
+): { x: number; y: number } {
+  return {
+    x: x + warpX(x, y) * strength,
+    y: y + warpY(x, y) * strength,
+  };
+}

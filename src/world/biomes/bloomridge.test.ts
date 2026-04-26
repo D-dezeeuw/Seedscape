@@ -24,30 +24,48 @@ describe("quantizeNoise", () => {
   });
 });
 
-describe("bloomridgeTile", () => {
-  test("terrain band 0 is always water regardless of moisture", () => {
+describe("bloomridgeTile (8-band)", () => {
+  test("band 0 → deep water regardless of moisture", () => {
     for (let m = 0; m < MOISTURE_BANDS; m++) {
-      expect(bloomridgeTile(0, m)).toBe(BLOOMRIDGE_TILES.shallowWater);
+      expect(bloomridgeTile(0, m)).toBe(BLOOMRIDGE_TILES.deepWater);
     }
   });
 
-  test("terrain bands 1-2 + low moisture -> dry grass", () => {
-    expect(bloomridgeTile(1, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
-    expect(bloomridgeTile(2, 1)).toBe(BLOOMRIDGE_TILES.dryGrass);
+  test("band 1 → shallow water", () => {
+    expect(bloomridgeTile(1, 0)).toBe(BLOOMRIDGE_TILES.shallowWater);
+    expect(bloomridgeTile(1, 3)).toBe(BLOOMRIDGE_TILES.shallowWater);
   });
 
-  test("terrain bands 1-2 + high moisture -> rich soil", () => {
-    expect(bloomridgeTile(1, 2)).toBe(BLOOMRIDGE_TILES.richSoil);
-    expect(bloomridgeTile(2, 3)).toBe(BLOOMRIDGE_TILES.richSoil);
+  test("band 2 → beach sand", () => {
+    expect(bloomridgeTile(2, 0)).toBe(BLOOMRIDGE_TILES.beachSand);
+    expect(bloomridgeTile(2, 3)).toBe(BLOOMRIDGE_TILES.beachSand);
   });
 
-  test("terrain bands 3-5 -> farmland", () => {
-    expect(bloomridgeTile(3, 0)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
-    expect(bloomridgeTile(5, 3)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
+  test("band 3 splits on moisture: low → dry grass, high → rich soil", () => {
+    expect(bloomridgeTile(3, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
+    expect(bloomridgeTile(3, 1)).toBe(BLOOMRIDGE_TILES.dryGrass);
+    expect(bloomridgeTile(3, 2)).toBe(BLOOMRIDGE_TILES.richSoil);
+    expect(bloomridgeTile(3, 3)).toBe(BLOOMRIDGE_TILES.richSoil);
   });
 
-  test("terrain bands 6-7 -> rocky outcrop", () => {
-    expect(bloomridgeTile(6, 0)).toBe(BLOOMRIDGE_TILES.rockyOutcrop);
+  test("band 4 splits on moisture: dry → grass, anything moister → farmland", () => {
+    expect(bloomridgeTile(4, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
+    expect(bloomridgeTile(4, 1)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
+    expect(bloomridgeTile(4, 3)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
+  });
+
+  test("band 5 → dry grass", () => {
+    expect(bloomridgeTile(5, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
+    expect(bloomridgeTile(5, 3)).toBe(BLOOMRIDGE_TILES.dryGrass);
+  });
+
+  test("band 6 → barren stone", () => {
+    expect(bloomridgeTile(6, 0)).toBe(BLOOMRIDGE_TILES.barrenStone);
+    expect(bloomridgeTile(6, 3)).toBe(BLOOMRIDGE_TILES.barrenStone);
+  });
+
+  test("band 7 → rocky outcrop", () => {
+    expect(bloomridgeTile(7, 0)).toBe(BLOOMRIDGE_TILES.rockyOutcrop);
     expect(bloomridgeTile(7, 3)).toBe(BLOOMRIDGE_TILES.rockyOutcrop);
   });
 });
