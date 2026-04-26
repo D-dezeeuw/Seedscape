@@ -1,13 +1,13 @@
-// Inventory list. Re-renders every entry on change; with the Phase 3 item
-// catalog (≤ 10 items) the cost is negligible. Switch to per-row updates in
-// Phase 4 if the catalog grows.
+// Inventory list. Re-renders every entry on change; with the Phase 4 item
+// catalog (≤ 12 items) the cost is negligible.
 
 import type { Inventory } from "../state/inventory";
 import { getItemDef, type ItemId } from "../state/items";
+import { makeWindow, type UiWindow } from "./window";
 
-export function createInventoryPanel(parent: HTMLElement, inventory: Inventory): () => void {
+export function createInventoryPanel(parent: HTMLElement, inventory: Inventory): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel ss-inv";
+  panel.className = "ss-panel";
   panel.innerHTML = `<h3>Inventory</h3><div data-field="rows"></div>`;
   parent.appendChild(panel);
 
@@ -32,8 +32,5 @@ export function createInventoryPanel(parent: HTMLElement, inventory: Inventory):
   render();
   const unsubscribe = inventory.subscribe(render);
 
-  return () => {
-    unsubscribe();
-    panel.remove();
-  };
+  return makeWindow(panel, unsubscribe);
 }

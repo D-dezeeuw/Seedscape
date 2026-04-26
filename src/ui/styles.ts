@@ -1,6 +1,5 @@
 // Shared CSS styles. Injected once at boot so individual panels stay free of
-// inline boilerplate. Phase 3 kept it minimal; Phase 4 grows it for the new
-// orders / shop / building panels.
+// inline boilerplate.
 
 const STYLE_ID = "seedscape-ui-styles";
 
@@ -11,7 +10,7 @@ export function injectUiStyles(): void {
   style.textContent = `
     .ss-panel {
       position: fixed;
-      background: rgba(20, 26, 32, 0.85);
+      background: rgba(20, 26, 32, 0.92);
       color: #e8eaed;
       font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       border: 1px solid rgba(255,255,255,0.08);
@@ -21,7 +20,7 @@ export function injectUiStyles(): void {
       user-select: none;
       z-index: 5;
       backdrop-filter: blur(4px);
-      max-height: calc(100vh - 100px);
+      max-height: calc(100vh - 200px);
       overflow-y: auto;
     }
     .ss-panel h3 {
@@ -31,6 +30,25 @@ export function injectUiStyles(): void {
       letter-spacing: 0.05em;
       color: #a0b3c0;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .ss-window-close {
+      background: transparent;
+      border: none;
+      color: #708090;
+      font: inherit;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0 4px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .ss-window-close:hover {
+      color: #e8eaed;
+      background: rgba(255,255,255,0.08);
     }
     .ss-subhead {
       font-size: 10px;
@@ -39,15 +57,51 @@ export function injectUiStyles(): void {
       color: #708090;
       margin: 8px 0 4px 0;
     }
+
+    /* Always-visible status panels. HUD top-right; tile-info top-left under
+       the FPS overlay (which sits at top:8px). */
     .ss-hud { top: 8px; right: 8px; min-width: 200px; }
-    .ss-inv { top: 200px; right: 8px; min-width: 200px; }
-    .ss-info { bottom: 60px; right: 8px; min-width: 220px; }
-    .ss-orders { top: 8px; left: 8px; min-width: 240px; max-width: 280px; }
-    .ss-shop { top: 8px; left: 270px; min-width: 220px; }
-    .ss-toolbar {
-      bottom: 8px; left: 50%; transform: translateX(-50%);
-      display: flex; gap: 4px; padding: 6px;
+    .ss-info { top: 44px; left: 8px; min-width: 220px; max-width: 280px; }
+
+    /* Toolbar-managed windows: centered above the bottom toolbar. */
+    .ss-window {
+      bottom: 110px;
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 320px;
+      max-width: 480px;
+      max-height: calc(100vh - 160px);
     }
+    .ss-window.ss-debug {
+      border-color: rgba(232, 196, 104, 0.4);
+    }
+    .ss-window.ss-debug h3 { color: #e8c468; }
+
+    /* Bottom-center double toolbar. */
+    .ss-toolbar-stack {
+      position: fixed;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: auto;
+      z-index: 10;
+    }
+    .ss-toolbar-row {
+      display: flex;
+      gap: 4px;
+      padding: 6px;
+      background: rgba(20, 26, 32, 0.92);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+    }
+    .ss-toolbar-windows .ss-btn {
+      min-width: 80px;
+    }
+
     .ss-btn {
       background: rgba(255,255,255,0.05);
       color: #e8eaed;
@@ -133,21 +187,6 @@ export function injectUiStyles(): void {
     }
     .ss-toast.ss-toast-visible {
       opacity: 1;
-    }
-    .ss-debug {
-      bottom: 80px; left: 8px; min-width: 180px;
-      border-color: rgba(232, 196, 104, 0.4);
-    }
-    .ss-debug h3 { color: #e8c468; }
-    .ss-debug-toggle {
-      cursor: pointer;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .ss-debug-toggle:hover {
-      color: #f5d680;
     }
     .ss-debug-row {
       display: flex; gap: 4px; margin-bottom: 4px;

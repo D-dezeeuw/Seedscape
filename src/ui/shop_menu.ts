@@ -1,4 +1,4 @@
-// Shop menu — seed shop and building shop in one panel. Player level decides
+// Shop menu — seed shop and building shop in one window. Player level decides
 // what's listed; locked items show but are disabled. Buying a seed adds it
 // to inventory; buying a building arms the build tool with that selection.
 
@@ -8,6 +8,7 @@ import { getItemDef, type ItemId } from "../state/items";
 import type { Player } from "../state/player";
 import { isBuildingUnlocked, isSeedUnlocked } from "../state/unlocks";
 import { listBuildings } from "../world/farming/building_registry";
+import { makeWindow, type UiWindow } from "./window";
 
 interface ShopDeps {
   parent: HTMLElement;
@@ -16,13 +17,11 @@ interface ShopDeps {
   tool: ToolState;
 }
 
-// Per-seed prices in coins. Match the basePrice in items.ts so seed → produce
-// → sell rough math: 1 wheat seed (1c) → ~2-4 wheat (2c each) → ~4-8c.
 const SEED_OFFERS: ReadonlyArray<ItemId> = [600, 608, 616] as ItemId[];
 
-export function createShopMenu(deps: ShopDeps): () => void {
+export function createShopMenu(deps: ShopDeps): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel ss-shop";
+  panel.className = "ss-panel";
   panel.innerHTML = `
     <h3>Shop</h3>
     <div class="ss-subhead">Seeds</div>
@@ -69,8 +68,6 @@ export function createShopMenu(deps: ShopDeps): () => void {
       btn.textContent = unlocked ? "Build" : "Locked";
       btn.disabled = !unlocked || coins < def.placementCost;
       btn.addEventListener("click", () => {
-        // Arm the build tool — coins are deducted on placement, not on
-        // selecting, so the player can cancel by switching tools.
         deps.tool.selectBuilding(def.id);
       });
       row.appendChild(btn);
@@ -82,9 +79,8 @@ export function createShopMenu(deps: ShopDeps): () => void {
   const unsubscribePlayer = deps.player.subscribe(render);
   const unsubscribeInv = deps.inventory.subscribe(render);
 
-  return () => {
+  return makeWindow(panel, () => {
     unsubscribePlayer();
     unsubscribeInv();
-    panel.remove();
-  };
+  });
 }

@@ -16,11 +16,12 @@ import { createDebugPanel } from "./ui/debug_panel";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
+import { createSettingsPanel } from "./ui/settings_panel";
 import { createShopMenu } from "./ui/shop_menu";
 import { injectUiStyles } from "./ui/styles";
 import { createTileInfo } from "./ui/tile_info";
 import { createToaster } from "./ui/toast";
-import { createToolSelector } from "./ui/tool_selector";
+import { createToolbar, type ToolbarWindow } from "./ui/toolbar";
 import { GenerationPool } from "./workers/generation_pool";
 import { IoClient } from "./workers/io_client";
 import { SimulationPool } from "./workers/simulation_pool";
@@ -144,15 +145,6 @@ async function bootstrap(): Promise<void> {
   });
 
   const detachHud = createHud(document.body, player);
-  const detachInv = createInventoryPanel(document.body, inventory);
-  const detachOrders = createOrdersPanel({
-    parent: document.body,
-    orders,
-    inventory,
-    player,
-  });
-  const detachShop = createShopMenu({ parent: document.body, inventory, player, tool });
-  const detachTool = createToolSelector(document.body, tool);
   const detachInfo = createTileInfo({
     parent: document.body,
     canvas,
@@ -162,10 +154,35 @@ async function bootstrap(): Promise<void> {
   });
   const toaster = createToaster(document.body);
 
-  // Dev-only debug panel (tree-shaken from production builds).
-  const detachDebug = import.meta.env.DEV
+  // Toolbar-managed windows. They start hidden; the toolbar opens/closes them.
+  const inventoryWindow = createInventoryPanel(document.body, inventory);
+  const ordersWindow = createOrdersPanel({
+    parent: document.body,
+    orders,
+    inventory,
+    player,
+  });
+  const shopWindow = createShopMenu({ parent: document.body, inventory, player, tool });
+  const settingsWindow = createSettingsPanel({ parent: document.body });
+  const debugWindow = import.meta.env.DEV
     ? createDebugPanel({ parent: document.body, player, inventory })
-    : () => {};
+    : null;
+
+  const toolbarWindows: ToolbarWindow[] = [
+    { id: "inventory", label: "Inventory", window: inventoryWindow },
+    { id: "trader", label: "Trader", window: ordersWindow },
+    { id: "shop", label: "Shop", window: shopWindow },
+    { id: "settings", label: "Settings", window: settingsWindow },
+  ];
+  if (debugWindow) {
+    toolbarWindows.push({ id: "debug", label: "Debug", window: debugWindow });
+  }
+
+  const detachToolbar = createToolbar({
+    parent: document.body,
+    tool,
+    windows: toolbarWindows,
+  });
 
   // Surface level-ups to the player. Listing the new unlocks gives the
   // notification something specific to say.
@@ -277,13 +294,14 @@ async function bootstrap(): Promise<void> {
       detachControls();
       detachInteraction();
       detachHud();
-      detachInv();
-      detachOrders();
-      detachShop();
-      detachTool();
       detachInfo();
+      detachToolbar();
+      inventoryWindow.destroy();
+      ordersWindow.destroy();
+      shopWindow.destroy();
+      settingsWindow.destroy();
+      debugWindow?.destroy();
       detachLevelUp();
-      detachDebug();
       toaster.destroy();
       generationPool.terminate();
       simulationPool.terminate();

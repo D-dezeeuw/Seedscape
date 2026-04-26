@@ -6,6 +6,7 @@ import { getItemDef } from "../state/items";
 import type { OrderBook } from "../state/orders";
 import { NPC_DEFS } from "../state/orders";
 import type { Player } from "../state/player";
+import { makeWindow, type UiWindow } from "./window";
 
 const SELL_XP_PER_COIN = 1;
 
@@ -20,10 +21,10 @@ const NPC_NAMES: Record<string, string> = Object.fromEntries(
   NPC_DEFS.map((n) => [n.id, n.displayName]),
 );
 
-export function createOrdersPanel(deps: OrdersPanelDeps): () => void {
+export function createOrdersPanel(deps: OrdersPanelDeps): UiWindow {
   const panel = document.createElement("div");
-  panel.className = "ss-panel ss-orders";
-  panel.innerHTML = `<h3>Orders</h3><div data-field="rows"></div>`;
+  panel.className = "ss-panel";
+  panel.innerHTML = `<h3>Trader</h3><div data-field="rows"></div>`;
   deps.parent.appendChild(panel);
   const rows = panel.querySelector('[data-field="rows"]') as HTMLDivElement;
 
@@ -59,7 +60,6 @@ export function createOrdersPanel(deps: OrdersPanelDeps): () => void {
         if (!ok) return;
         const fulfilled = deps.orders.fulfill(idx);
         if (!fulfilled) {
-          // The order vanished between render and click. Refund the items.
           deps.inventory.add(order.itemId, order.quantity);
           return;
         }
@@ -75,9 +75,8 @@ export function createOrdersPanel(deps: OrdersPanelDeps): () => void {
   const unsubscribeOrders = deps.orders.subscribe(render);
   const unsubscribeInv = deps.inventory.subscribe(render);
 
-  return () => {
+  return makeWindow(panel, () => {
     unsubscribeOrders();
     unsubscribeInv();
-    panel.remove();
-  };
+  });
 }
