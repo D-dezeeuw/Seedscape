@@ -289,7 +289,15 @@ async function bootstrap(): Promise<void> {
   });
   const settingsWindow = createSettingsPanel({ parent: document.body });
   const debugWindow = import.meta.env.DEV
-    ? createDebugPanel({ parent: document.body, player, inventory, entityManager, camera })
+    ? createDebugPanel({
+        parent: document.body,
+        player,
+        inventory,
+        entityManager,
+        camera,
+        chunkManager,
+        toast: (msg) => toaster.show(msg),
+      })
     : null;
 
   const toolbarWindows: ToolbarWindow[] = [

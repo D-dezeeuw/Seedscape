@@ -9,6 +9,15 @@ import { Villager } from "../state/entities/villager";
 import type { Inventory } from "../state/inventory";
 import { ITEM_IDS } from "../state/items";
 import type { Player } from "../state/player";
+import {
+  CHUNK_FLAG_DIRTY_RENDER,
+  CHUNK_FLAG_DIRTY_SIMULATION,
+  CHUNK_SIZE,
+  tileIndex,
+} from "../world/chunk";
+import type { ChunkManager } from "../world/chunk_manager";
+import { CRATE_TILE_ID } from "../world/farming/crate";
+import { CROP_STAGE_HARVESTABLE } from "../world/farming/crop_registry";
 import { makeWindow, type UiWindow } from "./window";
 
 interface DebugPanelDeps {
@@ -17,7 +26,14 @@ interface DebugPanelDeps {
   inventory: Inventory;
   entityManager: EntityManager;
   camera: Camera;
+  chunkManager: ChunkManager;
+  // Hook for the toaster so the user gets feedback when stress actions run
+  // (placing crops, spawning settlers — these are silent otherwise).
+  toast?: (message: string) => void;
 }
+
+const WHEAT_BASE_ID = 100;
+const TILE_DRY_GRASS = 10;
 
 export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
   const panel = document.createElement("div");
@@ -46,6 +62,18 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     <div class="ss-subhead">Entities</div>
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="settler-to-camera">Settler → camera</button>
+    </div>
+    <div class="ss-subhead">Stress test (Phase 7)</div>
+    <div class="ss-debug-row">
+      <button class="ss-btn" data-act="stress-setup">Setup farm at camera</button>
+    </div>
+    <div class="ss-debug-row">
+      <button class="ss-btn" data-act="spawn-25">+25 settlers</button>
+      <button class="ss-btn" data-act="spawn-50">+50 settlers</button>
+      <button class="ss-btn" data-act="spawn-150">+150 settlers</button>
+    </div>
+    <div class="ss-debug-row">
+      <button class="ss-btn" data-act="clear-settlers">Clear villagers</button>
     </div>
   `;
   deps.parent.appendChild(panel);
@@ -92,6 +120,30 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
         }
         return;
       }
+      case "stress-setup": {
+        const placed = setupStressFarm(deps);
+        deps.toast?.(
+          `Stress farm: ${placed.crops} ripe crops, ${placed.crates} crates around camera`,
+        );
+        return;
+      }
+      case "spawn-25":
+        spawnSettlersAroundCamera(deps, 25);
+        deps.toast?.("Spawned 25 settlers");
+        return;
+      case "spawn-50":
+        spawnSettlersAroundCamera(deps, 50);
+        deps.toast?.("Spawned 50 settlers");
+        return;
+      case "spawn-150":
+        spawnSettlersAroundCamera(deps, 150);
+        deps.toast?.("Spawned 150 settlers");
+        return;
+      case "clear-settlers": {
+        const removed = clearVillagers(deps);
+        deps.toast?.(`Removed ${removed} villagers`);
+        return;
+      }
     }
   };
   panel.addEventListener("click", handler);
@@ -99,4 +151,110 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
   return makeWindow(panel, () => {
     panel.removeEventListener("click", handler);
   });
+}
+
+// ---------------- Stress-test helpers ----------------
+
+// Layout for a self-sufficient stress scenario near the camera:
+//   - A 16×16 zone of ripe wheat tiles (256 tiles, but we sparse-fill
+//     ~half so settlers don't all converge on the exact same spot)
+//   - 4 crates in a square around the zone for harvest deposits
+// The placements only modify chunks that already exist in the cache —
+// uncached chunks are silently skipped (the camera should be on them
+// already, so this rarely matters).
+function setupStressFarm(deps: DebugPanelDeps): { crops: number; crates: number } {
+  const cx0 = Math.floor(deps.camera.x);
+  const cy0 = Math.floor(deps.camera.y);
+  const dirty = new Set<string>();
+
+  const writeTile = (wx: number, wy: number, tileId: number, state = 0): boolean => {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cy = Math.floor(wy / CHUNK_SIZE);
+    const rec = deps.chunkManager.peekChunk(cx, cy);
+    if (!rec) return false;
+    const lx = wx - cx * CHUNK_SIZE;
+    const ly = wy - cy * CHUNK_SIZE;
+    const i = tileIndex(lx, ly);
+    rec.data.tileId[i] = tileId;
+    rec.data.state[i] = state;
+    rec.data.metadata[i] = 0;
+    dirty.add(`${cx},${cy}`);
+    return true;
+  };
+
+  let crops = 0;
+  // 16×16 zone, every other tile gets a crop. Stagger by row so the
+  // pattern doesn't form solid blocks (which would block paths).
+  for (let dy = -8; dy < 8; dy++) {
+    for (let dx = -8; dx < 8; dx++) {
+      if ((dx + dy) % 2 !== 0) continue;
+      // Lay walkable grass first, then drop the crop. Avoids landing a
+      // crop on top of e.g. water and getting an unwalkable mess.
+      writeTile(cx0 + dx, cy0 + dy, TILE_DRY_GRASS);
+      if (writeTile(cx0 + dx, cy0 + dy, WHEAT_BASE_ID, CROP_STAGE_HARVESTABLE)) crops++;
+    }
+  }
+
+  let crates = 0;
+  const cratePositions: Array<{ x: number; y: number }> = [
+    { x: cx0 - 10, y: cy0 - 10 },
+    { x: cx0 + 10, y: cy0 - 10 },
+    { x: cx0 - 10, y: cy0 + 10 },
+    { x: cx0 + 10, y: cy0 + 10 },
+  ];
+  for (const p of cratePositions) {
+    // Crate sits on a building-range tile; surround it with grass so
+    // settlers can stand on a neighbour to deposit.
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        writeTile(p.x + dx, p.y + dy, TILE_DRY_GRASS);
+      }
+    }
+    if (writeTile(p.x, p.y, CRATE_TILE_ID)) crates++;
+  }
+
+  // Mark every touched chunk dirty for both render + sim; the manager's
+  // hook fires onChunkMutated which pushes the new walkability mask into
+  // the pathfinding worker.
+  for (const key of dirty) {
+    const [cx, cy] = key.split(",").map(Number) as [number, number];
+    deps.chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+  }
+  return { crops, crates };
+}
+
+function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {
+  const cx0 = Math.floor(deps.camera.x);
+  const cy0 = Math.floor(deps.camera.y);
+  // Spread in a sunflower spiral so settlers don't pile on one tile.
+  // Radius grows with √n so density stays roughly constant.
+  for (let i = 0; i < count; i++) {
+    const angle = i * 2.39996; // golden-angle radians
+    const r = Math.sqrt(i) * 0.8;
+    const wx = cx0 + Math.cos(angle) * r;
+    const wy = cy0 + Math.sin(angle) * r;
+    const id = deps.entityManager.allocateId();
+    const v = new Villager(
+      id,
+      {
+        chunkX: Math.floor(wx / CHUNK_SIZE),
+        chunkY: Math.floor(wy / CHUNK_SIZE),
+        localX: ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
+        localY: ((wy % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
+      },
+      `D${id}`,
+      { x: Math.floor(wx), y: Math.floor(wy) },
+    );
+    deps.entityManager.add(v);
+  }
+}
+
+function clearVillagers(deps: DebugPanelDeps): number {
+  const ids: number[] = [];
+  for (const e of deps.entityManager.iterate()) {
+    if (e instanceof Villager) ids.push(e.id);
+  }
+  for (const id of ids) deps.entityManager.remove(id);
+  return ids.length;
 }
