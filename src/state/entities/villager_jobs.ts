@@ -72,9 +72,15 @@ export class VillagerJobController {
   currentWaypoints(): Int16Array | null {
     return this.state.kind === "walking" ? this.state.waypoints : null;
   }
+  currentWaypointIdx(): number | null {
+    return this.state.kind === "walking" ? this.state.idx : null;
+  }
   currentPhase(): Phase | null {
     if (this.state.kind === "idle" || this.state.kind === "no_op") return null;
     return this.state.phase;
+  }
+  currentStateName(): string {
+    return this.state.kind;
   }
   isIdle(): boolean {
     return this.state.kind === "idle";
@@ -93,6 +99,8 @@ export class VillagerJobController {
   // handled the tick (settler is busy with a job); false if idle and the
   // caller should fall through to wander/whatever default behaviour.
   tick(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
+    // Narrow services here so subsequent helpers can read services.tileWorld
+    // etc. without optional chaining or non-null assertions on every line.
     if (!services.jobs || !services.pathfinding || !services.tileWorld) return false;
 
     switch (this.state.kind) {
@@ -127,8 +135,10 @@ export class VillagerJobController {
 
     // No claimable job. If the world has thirsty crops and we're empty,
     // emit a HAUL_WATER for ourselves so the next claim succeeds.
+    const tileWorld = services.tileWorld;
+    if (!tileWorld) return false;
     if (!job && v.waterReserve === 0 && hasUnclaimedWaterJob(board)) {
-      const water = findNearestWaterSource(services.tileWorld!, fromX, fromY);
+      const water = findNearestWaterSource(tileWorld, fromX, fromY);
       if (water) {
         const id = board.enqueue({
           kind: JOB_KIND_HAUL_WATER,
@@ -162,11 +172,7 @@ export class VillagerJobController {
     if (job.kind === JOB_KIND_HARVEST_CROP) {
       const hit =
         services.crates && services.tileWorld
-          ? services.crates.nearestCrateWithRoom(
-              services.tileWorld,
-              job.source.x,
-              job.source.y,
-            )
+          ? services.crates.nearestCrateWithRoom(services.tileWorld, job.source.x, job.source.y)
           : null;
       if (!hit) {
         board.release(job.id);
@@ -193,6 +199,8 @@ export class VillagerJobController {
     services: EntityServices,
     job: Job,
   ): void {
+    const pathfinding = services.pathfinding;
+    if (!pathfinding) return;
     const nonce = this.nextNonce++;
     this.state = {
       kind: "requesting_path",
@@ -200,11 +208,8 @@ export class VillagerJobController {
       phase: "to_source",
       requestNonce: nonce,
     };
-    services.pathfinding!
-      .requestPath(
-        { x: v.worldTileX(), y: v.worldTileY() },
-        { x: job.source.x, y: job.source.y },
-      )
+    pathfinding
+      .requestPath({ x: v.worldTileX(), y: v.worldTileY() }, { x: job.source.x, y: job.source.y })
       .then((reply) => this.onPathReply(nonce, "to_source", reply.waypoints, services, ctx.time))
       .catch(() => this.onPathFailed(nonce, services));
   }
@@ -215,6 +220,8 @@ export class VillagerJobController {
     services: EntityServices,
     job: Job,
   ): void {
+    const pathfinding = services.pathfinding;
+    if (!pathfinding) return;
     const nonce = this.nextNonce++;
     this.state = {
       kind: "requesting_path",
@@ -222,11 +229,8 @@ export class VillagerJobController {
       phase: "to_target",
       requestNonce: nonce,
     };
-    services.pathfinding!
-      .requestPath(
-        { x: v.worldTileX(), y: v.worldTileY() },
-        { x: job.target.x, y: job.target.y },
-      )
+    pathfinding
+      .requestPath({ x: v.worldTileX(), y: v.worldTileY() }, { x: job.target.x, y: job.target.y })
       .then((reply) => this.onPathReply(nonce, "to_target", reply.waypoints, services, ctx.time))
       .catch(() => this.onPathFailed(nonce, services));
   }
@@ -290,9 +294,9 @@ export class VillagerJobController {
   }
 
   private advanceToActing(
-    v: Villager,
+    _v: Villager,
     ctx: EntityTickContext,
-    services: EntityServices,
+    _services: EntityServices,
   ): boolean {
     if (this.state.kind !== "walking") return true;
     this.state = {

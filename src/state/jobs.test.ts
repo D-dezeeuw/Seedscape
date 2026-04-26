@@ -1,13 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ITEM_IDS } from "./items";
-import {
-  JOB_KIND_HARVEST_CROP,
-  JOB_KIND_HAUL_WATER,
-  JOB_KIND_WATER_CROP,
-  JobBoard,
-} from "./jobs";
-
 import type { JobKind } from "./jobs";
+import { JOB_KIND_HARVEST_CROP, JOB_KIND_HAUL_WATER, JOB_KIND_WATER_CROP, JobBoard } from "./jobs";
 
 const haulSpec = (x: number, y: number) => ({
   kind: JOB_KIND_HAUL_WATER as JobKind,

@@ -15,7 +15,7 @@ import { buildingForTile } from "../world/farming/building_registry";
 import { cropForSeed } from "../world/farming/crop_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
-import { pickTile, type PickResult } from "./picker";
+import { type PickResult, pickTile } from "./picker";
 import type { ToolState } from "./tool";
 
 const HARVEST_XP_PER_YIELD = 1;

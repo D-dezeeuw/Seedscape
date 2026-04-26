@@ -5,6 +5,9 @@
 // `await flushMicrotasks()`.
 
 import { beforeEach, describe, expect, test } from "vitest";
+import { PathfindingClient } from "../../workers/pathfinding_client";
+import { findPath, PathfinderWorkspace, type PathGrid } from "../../workers/pathfinding_core";
+import type { PathfindingRequest, PathfindingResponse } from "../../workers/pathfinding_worker";
 import {
   allocChunkData,
   CHUNK_FLAG_DIRTY_RENDER,
@@ -17,23 +20,9 @@ import { CrateStore } from "../../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../../world/farming/crop_registry";
 import { harvestTile, setWaterLevel, waterTile } from "../../world/farming/tile_actions";
 import { buildChunkMask } from "../../world/walkability";
-import { PathfindingClient } from "../../workers/pathfinding_client";
-import {
-  findPath,
-  type PathGrid,
-  PathfinderWorkspace,
-} from "../../workers/pathfinding_core";
-import type {
-  PathfindingRequest,
-  PathfindingResponse,
-} from "../../workers/pathfinding_worker";
 import { ITEM_IDS } from "../items";
 import { JOB_KIND_HARVEST_CROP, JobBoard } from "../jobs";
-import type {
-  EntityServices,
-  EntityTickContext,
-  TileWorldAccess,
-} from "./entity";
+import type { EntityServices, EntityTickContext, TileWorldAccess } from "./entity";
 import { Villager } from "./villager";
 
 const WHEAT_BASE = 100;
@@ -134,7 +123,9 @@ function tileWorldFor(world: World, dirtyMarks: Set<string>): TileWorldAccess {
       const ly = wy - cy * CHUNK_SIZE;
       const r = harvestTile(rec.data, lx, ly);
       if (r.applied) dirtyMarks.add(chunkKey(cx, cy));
-      const out: { applied: boolean; produceItem?: number; yield?: number } = { applied: r.applied };
+      const out: { applied: boolean; produceItem?: number; yield?: number } = {
+        applied: r.applied,
+      };
       if (r.produceItem !== undefined) out.produceItem = r.produceItem;
       if (r.yield !== undefined) out.yield = r.yield;
       return out;
@@ -216,12 +207,10 @@ describe("VillagerJobController integration", () => {
     const { services, board } = makeServices(world);
     await flush();
 
-    const v = new Villager(
-      1,
-      { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
-      "S",
-      { x: 1, y: 1 },
-    );
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, "S", {
+      x: 1,
+      y: 1,
+    });
 
     // Emit a HARVEST job manually (we're not exercising the emitter here).
     board.enqueue({
@@ -246,7 +235,9 @@ describe("VillagerJobController integration", () => {
     expect(v.jobs.isIdle()).toBe(true);
     expect(world.crates.countAt(8, 8, ITEM_IDS.WHEAT)).toBeGreaterThan(0);
     // Source crop reverts to tilled.
-    expect(world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(5, 5)]).toBe(TILE_FARMLAND_TILLED);
+    expect(world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(5, 5)]).toBe(
+      TILE_FARMLAND_TILLED,
+    );
   });
 
   test("water-crop drains reserve and applies water", async () => {
@@ -258,12 +249,10 @@ describe("VillagerJobController integration", () => {
     const { services, board } = makeServices(world);
     await flush();
 
-    const v = new Villager(
-      7,
-      { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 },
-      "T",
-      { x: 0, y: 0 },
-    );
+    const v = new Villager(7, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
     v.waterReserve = 3;
 
     board.enqueue({
@@ -310,12 +299,10 @@ describe("VillagerJobController integration", () => {
       payload: 0,
     });
 
-    const v = new Villager(
-      2,
-      { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
-      "U",
-      { x: 1, y: 1 },
-    );
+    const v = new Villager(2, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, "U", {
+      x: 1,
+      y: 1,
+    });
     expect(v.waterReserve).toBe(0);
 
     let time = 0;

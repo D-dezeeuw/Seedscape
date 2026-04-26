@@ -15,13 +15,13 @@
 // constant-time scan over <300 jobs is well below the per-chunk tile loop.
 
 import { CHUNK_SIZE, type ChunkRecord, tileIndex } from "../world/chunk";
-import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED, cropForTile } from "../world/farming/crop_registry";
-import { getWaterLevel } from "../world/farming/tile_actions";
 import {
-  JOB_KIND_HARVEST_CROP,
-  JOB_KIND_WATER_CROP,
-  type JobBoard,
-} from "./jobs";
+  CROP_STAGE_HARVESTABLE,
+  CROP_STATE_WILTED,
+  cropForTile,
+} from "../world/farming/crop_registry";
+import { getWaterLevel } from "../world/farming/tile_actions";
+import { JOB_KIND_HARVEST_CROP, JOB_KIND_WATER_CROP, type JobBoard } from "./jobs";
 
 // Crops with water at or below this level are considered thirsty enough
 // that a WATER_CROP job is worth emitting. WATER_DECAY_INTERVAL drains by 1

@@ -88,10 +88,7 @@ export class JobBoard {
       if (filter.kinds && !filter.kinds.includes(job.kind)) continue;
       const d = Math.abs(job.source.x - filter.fromX) + Math.abs(job.source.y - filter.fromY);
       // Higher priority strictly wins; same priority falls back to distance.
-      if (
-        job.priority > bestPriority ||
-        (job.priority === bestPriority && d < bestDist)
-      ) {
+      if (job.priority > bestPriority || (job.priority === bestPriority && d < bestDist)) {
         bestId = job.id;
         bestDist = d;
         bestPriority = job.priority;

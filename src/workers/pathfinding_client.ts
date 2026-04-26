@@ -91,7 +91,10 @@ export class PathfindingClient {
     // caller's masks stay live (chunk_manager keeps the canonical mask alive).
     const payload = chunks.map((c) => ({ key: c.key, mask: c.mask.slice().buffer as ArrayBuffer }));
     const msg: InitGridRequest = { type: "INIT_GRID", chunks: payload };
-    this.worker.postMessage(msg, payload.map((p) => p.mask));
+    this.worker.postMessage(
+      msg,
+      payload.map((p) => p.mask),
+    );
     // Pre-clear local cache; any cached path is from before this grid.
     this.cache.clear();
   }

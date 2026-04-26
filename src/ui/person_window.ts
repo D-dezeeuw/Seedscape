@@ -13,6 +13,12 @@ import { Animal, Mount, Pet } from "../state/entities/animal";
 import type { Entity } from "../state/entities/entity";
 import { LivingEntity, type MemoryEvent } from "../state/entities/living_entity";
 import { Villager } from "../state/entities/villager";
+import {
+  JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_WATER,
+  JOB_KIND_WATER_CROP,
+  type JobKind,
+} from "../state/jobs";
 import { makeWindow } from "./window";
 
 const REFRESH_HZ = 4;
@@ -130,14 +136,58 @@ const LONG_TERM_MEMORY: DetailSection = {
   },
 };
 
+const JOB: DetailSection = {
+  title: "Job",
+  applies: (e) => e instanceof Villager,
+  render: (e) => {
+    const v = e as Villager;
+    const stateName = v.jobs.currentStateName();
+    const jobId = v.jobs.currentJobId();
+    const phase = v.jobs.currentPhase();
+    const waypoints = v.jobs.currentWaypoints();
+    const out = [
+      row("State", stateName),
+      row("Water reserve", `${v.waterReserve}/5`),
+      row("Carrying", carriedSummary(v)),
+    ];
+    if (jobId !== null) out.push(row("Job id", `#${jobId}`));
+    if (phase !== null) out.push(row("Phase", phase));
+    if (waypoints && waypoints.length > 0) {
+      const idx = v.jobs.currentWaypointIdx() ?? 0;
+      out.push(row("Waypoints", `${idx / 2}/${waypoints.length / 2}`));
+    }
+    return out.join("");
+  },
+};
+
 const SECTIONS: DetailSection[] = [
   IDENTITY,
   LOCATION,
+  JOB,
   NEEDS,
   TRAITS,
   SHORT_TERM_MEMORY,
   LONG_TERM_MEMORY,
 ];
+
+function carriedSummary(v: Villager): string {
+  const parts: string[] = [];
+  for (const [item, count] of v.carriedItems) parts.push(`${count}×#${item}`);
+  return parts.length === 0 ? "—" : parts.join(", ");
+}
+
+// Currently unused but kept for the future "name the kind" needs of an
+// in-world tooltip. Removing now would mean re-deriving it later.
+export function jobKindLabel(kind: JobKind): string {
+  switch (kind) {
+    case JOB_KIND_HAUL_WATER:
+      return "Haul water";
+    case JOB_KIND_WATER_CROP:
+      return "Water crop";
+    case JOB_KIND_HARVEST_CROP:
+      return "Harvest crop";
+  }
+}
 
 // ---------- Panel ----------
 

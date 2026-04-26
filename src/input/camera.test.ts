@@ -57,7 +57,7 @@ describe("Camera follow mode", () => {
     const c = new Camera();
     c.x = 0;
     c.y = 0;
-    let tx = 10,
+    const tx = 10,
       ty = 0;
     c.followEntity(() => ({ x: tx, y: ty }), { deadZone: 0.5, lerp: 0.5 });
     expect(c.isFollowing()).toBe(true);

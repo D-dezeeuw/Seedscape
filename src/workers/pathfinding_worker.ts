@@ -5,12 +5,7 @@
 // Determinism: the worker is pure relative to (grid, request). It never
 // reads clocks or RNG. Same gridVersion + same request → identical bytes.
 
-import {
-  findPath,
-  type PathGrid,
-  type PathRequest,
-  PathfinderWorkspace,
-} from "./pathfinding_core";
+import { findPath, PathfinderWorkspace, type PathGrid, type PathRequest } from "./pathfinding_core";
 
 declare const self: DedicatedWorkerGlobalScope;
 

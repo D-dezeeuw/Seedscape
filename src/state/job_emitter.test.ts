@@ -7,21 +7,10 @@ import {
   tileIndex,
 } from "../world/chunk";
 import { chunkKey } from "../world/coords";
-import {
-  CROP_STAGE_HARVESTABLE,
-  CROP_STATE_WILTED,
-} from "../world/farming/crop_registry";
+import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED } from "../world/farming/crop_registry";
 import { setWaterLevel } from "../world/farming/tile_actions";
-import {
-  DEFAULT_EMITTER_PERIOD_TICKS,
-  JobEmitter,
-  WATER_THIRSTY_THRESHOLD,
-} from "./job_emitter";
-import {
-  JOB_KIND_HARVEST_CROP,
-  JOB_KIND_WATER_CROP,
-  JobBoard,
-} from "./jobs";
+import { DEFAULT_EMITTER_PERIOD_TICKS, JobEmitter, WATER_THIRSTY_THRESHOLD } from "./job_emitter";
+import { JOB_KIND_HARVEST_CROP, JOB_KIND_WATER_CROP, JobBoard } from "./jobs";
 
 const WHEAT_BASE_ID = 100;
 

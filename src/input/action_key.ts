@@ -7,9 +7,9 @@
 // one-shot key, not a continuous state input.
 
 import { LivingEntity } from "../state/entities/living_entity";
-import type { PossessionController } from "../state/possession";
 import type { Inventory } from "../state/inventory";
 import type { Player } from "../state/player";
+import type { PossessionController } from "../state/possession";
 import type { ChunkManager } from "../world/chunk_manager";
 import { worldTileToPick } from "./picker";
 import { applyToolAt } from "./tile_interaction";

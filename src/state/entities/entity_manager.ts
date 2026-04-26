@@ -15,6 +15,11 @@ export type EntityListener = () => void;
 // get pushed apart along the connecting line. Tuned so the placeholder
 // disc (~0.85 tile diameter) doesn't visibly overlap.
 const SEPARATION_RADIUS = 0.7;
+// Spatial-hash cell size. Set equal to SEPARATION_RADIUS so any pair
+// within range is guaranteed to share at least one of the 9 cells in a
+// 3×3 neighbourhood — a smaller cell would force checking more cells per
+// query, a larger cell would put more candidates in each cell.
+const HASH_CELL_SIZE = SEPARATION_RADIUS;
 
 export class EntityManager {
   private nextId = 1;
@@ -101,41 +106,85 @@ export class EntityManager {
     this.resolveSeparation(ctx);
   }
 
-  // Quadratic O(n²) push-apart pass. Cheap with ≤16 entities; replace
-  // with a spatial hash when entity count climbs. Pushes only happen if
-  // the destination tile is walkable, so soft-collide can't shove a
-  // villager into water.
+  // Spatial-hashed push-apart pass. Buckets every soft-colliding entity
+  // into a cell of size SEPARATION_RADIUS, then for each entity inspects
+  // only the 3×3 neighbourhood. With even spacing this is O(n); pathological
+  // pile-ups still degrade gracefully since each cell holds the few
+  // entities that actually overlap. Pushes only happen if the destination
+  // tile is walkable, so the resolver can't shove a villager into water.
+  //
+  // `bucket` is reused across frames to avoid per-frame allocation. Cleared
+  // by walking each entry's array length to 0 (Map.clear() drops the
+  // arrays themselves, defeating the pool).
+  private readonly bucket = new Map<string, LivingEntity[]>();
+  // Pool of pre-allocated arrays for reuse across frames so the bucket Map
+  // never has to allocate a fresh entry list. Grows monotonically.
+  private readonly arrayPool: LivingEntity[][] = [];
   private resolveSeparation(ctx: EntityTickContext): void {
-    const list: LivingEntity[] = [];
-    for (const e of this.entities.values()) {
-      if (e instanceof LivingEntity) list.push(e);
+    // Reset bucket entries to empty without dropping the arrays — push
+    // them into the pool for reuse.
+    for (const arr of this.bucket.values()) {
+      arr.length = 0;
+      this.arrayPool.push(arr);
     }
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i] as LivingEntity;
-      if (!a.softCollide) continue;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j] as LivingEntity;
-        if (!b.softCollide) continue;
-        const dx = a.worldX() - b.worldX();
-        const dy = a.worldY() - b.worldY();
-        const d = Math.hypot(dx, dy);
-        if (d >= SEPARATION_RADIUS) continue;
-        // Tiny offset for the perfectly-overlapping case so we still
-        // have a direction to push along.
-        const safe = d > 1e-4 ? d : 1e-4;
-        const ux = dx / safe || 1; // fallback unit if d=0
-        const uy = dy / safe || 0;
-        const push = (SEPARATION_RADIUS - d) * 0.5;
+    this.bucket.clear();
 
-        const ax = a.worldX() + ux * push;
-        const ay = a.worldY() + uy * push;
-        if (ctx.isWalkable(Math.floor(ax), Math.floor(ay))) a.setWorldPosition(ax, ay);
+    const ensureCell = (key: string): LivingEntity[] => {
+      const existing = this.bucket.get(key);
+      if (existing) return existing;
+      const arr = this.arrayPool.pop() ?? [];
+      this.bucket.set(key, arr);
+      return arr;
+    };
 
-        const bx = b.worldX() - ux * push;
-        const by = b.worldY() - uy * push;
-        if (ctx.isWalkable(Math.floor(bx), Math.floor(by))) b.setWorldPosition(bx, by);
+    // Bucket every soft-colliding entity once.
+    for (const e of this.entities.values()) {
+      if (!(e instanceof LivingEntity)) continue;
+      if (!e.softCollide) continue;
+      const cx = Math.floor(e.worldX() / HASH_CELL_SIZE);
+      const cy = Math.floor(e.worldY() / HASH_CELL_SIZE);
+      ensureCell(`${cx},${cy}`).push(e);
+    }
+
+    // For each entity, check itself against the 3×3 neighbourhood.
+    // Skip pair (a, b) where a.id >= b.id so each pair is processed once.
+    for (const cell of this.bucket.values()) {
+      for (let i = 0; i < cell.length; i++) {
+        const a = cell[i] as LivingEntity;
+        const acx = Math.floor(a.worldX() / HASH_CELL_SIZE);
+        const acy = Math.floor(a.worldY() / HASH_CELL_SIZE);
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const nbr = this.bucket.get(`${acx + ox},${acy + oy}`);
+            if (!nbr) continue;
+            for (let j = 0; j < nbr.length; j++) {
+              const b = nbr[j] as LivingEntity;
+              if (a.id >= b.id) continue;
+              this.tryPush(a, b, ctx);
+            }
+          }
+        }
       }
     }
+  }
+
+  private tryPush(a: LivingEntity, b: LivingEntity, ctx: EntityTickContext): void {
+    const dx = a.worldX() - b.worldX();
+    const dy = a.worldY() - b.worldY();
+    const d = Math.hypot(dx, dy);
+    if (d >= SEPARATION_RADIUS) return;
+    const safe = d > 1e-4 ? d : 1e-4;
+    const ux = dx / safe || 1;
+    const uy = dy / safe || 0;
+    const push = (SEPARATION_RADIUS - d) * 0.5;
+
+    const ax = a.worldX() + ux * push;
+    const ay = a.worldY() + uy * push;
+    if (ctx.isWalkable(Math.floor(ax), Math.floor(ay))) a.setWorldPosition(ax, ay);
+
+    const bx = b.worldX() - ux * push;
+    const by = b.worldY() - uy * push;
+    if (ctx.isWalkable(Math.floor(bx), Math.floor(by))) b.setWorldPosition(bx, by);
   }
 
   allocateId(): number {

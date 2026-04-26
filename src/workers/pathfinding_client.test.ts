@@ -2,15 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { TILES_PER_CHUNK } from "../world/chunk";
 import { chunkKey } from "../world/coords";
 import { PathfindingClient } from "./pathfinding_client";
-import {
-  findPath,
-  type PathGrid,
-  PathfinderWorkspace,
-} from "./pathfinding_core";
-import type {
-  PathfindingRequest,
-  PathfindingResponse,
-} from "./pathfinding_worker";
+import { findPath, PathfinderWorkspace, type PathGrid } from "./pathfinding_core";
+import type { PathfindingRequest, PathfindingResponse } from "./pathfinding_worker";
 
 // In-process fake worker that mirrors the real pathfinding_worker.ts protocol.
 // Lets us exercise the client's request/response wiring without Vite/DOM.

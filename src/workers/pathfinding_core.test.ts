@@ -5,8 +5,8 @@ import {
   findPath,
   isWalkable,
   MAX_DIM,
-  type PathGrid,
   PathfinderWorkspace,
+  type PathGrid,
 } from "./pathfinding_core";
 
 function emptyMask(): Uint8Array {
@@ -137,21 +137,13 @@ describe("findPath", () => {
   test("respects maxNodes budget (returns no-path when exceeded)", () => {
     const grid = gridAroundOrigin();
     // Tiny budget that can't reach a 10-tile-away goal.
-    const r = findPath(
-      grid,
-      { start: { x: 0, y: 0 }, goal: { x: 10, y: 10 }, maxNodes: 3 },
-      ws,
-    );
+    const r = findPath(grid, { start: { x: 0, y: 0 }, goal: { x: 10, y: 10 }, maxNodes: 3 }, ws);
     expect(r.found).toBe(false);
   });
 
   test("rejects requests whose bbox exceeds MAX_DIM", () => {
     const grid = gridAroundOrigin();
-    const r = findPath(
-      grid,
-      { start: { x: 0, y: 0 }, goal: { x: MAX_DIM + 10, y: 0 } },
-      ws,
-    );
+    const r = findPath(grid, { start: { x: 0, y: 0 }, goal: { x: MAX_DIM + 10, y: 0 } }, ws);
     expect(r.found).toBe(false);
   });
 
@@ -171,11 +163,7 @@ describe("findPath", () => {
   test("workspace reuse across many requests stays correct", () => {
     const grid = gridAroundOrigin();
     for (let i = 0; i < 200; i++) {
-      const r = findPath(
-        grid,
-        { start: { x: 0, y: 0 }, goal: { x: 5, y: i % 5 } },
-        ws,
-      );
+      const r = findPath(grid, { start: { x: 0, y: 0 }, goal: { x: 5, y: i % 5 } }, ws);
       expect(r.found).toBe(true);
     }
   });

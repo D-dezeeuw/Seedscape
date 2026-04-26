@@ -71,10 +71,16 @@ export interface EntityServices {
 export interface TileWorldAccess {
   // Read tileId / state / metadata at a world tile, or null when the
   // chunk isn't loaded.
-  readTile(worldTileX: number, worldTileY: number): { tileId: number; state: number; metadata: number } | null;
+  readTile(
+    worldTileX: number,
+    worldTileY: number,
+  ): { tileId: number; state: number; metadata: number } | null;
   // Apply a tile action by world coords. Returns whether it applied.
   // Implementations mark the chunk dirty internally.
-  harvestAt(worldTileX: number, worldTileY: number): { applied: boolean; produceItem?: number; yield?: number };
+  harvestAt(
+    worldTileX: number,
+    worldTileY: number,
+  ): { applied: boolean; produceItem?: number; yield?: number };
   waterAt(worldTileX: number, worldTileY: number): boolean;
   // Iterate loaded chunks (for emitter, water-finder, crate scans).
   allChunkRecords(): IterableIterator<[string, import("../../world/chunk").ChunkRecord]>;

@@ -1,14 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { ITEM_IDS } from "../../state/items";
-import {
-  allocChunkData,
-  CHUNK_FLAG_DIRTY_RENDER,
-  type ChunkRecord,
-  tileIndex,
-} from "../chunk";
+import { allocChunkData, CHUNK_FLAG_DIRTY_RENDER, type ChunkRecord, tileIndex } from "../chunk";
 import { chunkKey } from "../coords";
-import { CRATE_CAPACITY, CRATE_TILE_ID, CrateStore } from "./crate";
 import { isEntityWalkable } from "../walkability";
+import { CRATE_CAPACITY, CRATE_TILE_ID, CrateStore } from "./crate";
 
 function makeChunks(records: Array<[string, ChunkRecord]>) {
   return {
