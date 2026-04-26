@@ -36,6 +36,7 @@ import { createToaster } from "./ui/toast";
 import { createToolbar, type ToolbarWindow } from "./ui/toolbar";
 import { GenerationPool } from "./workers/generation_pool";
 import { IoClient } from "./workers/io_client";
+import { PathfindingClient } from "./workers/pathfinding_client";
 import { SimulationPool } from "./workers/simulation_pool";
 import {
   CHUNK_FLAG_DIRTY_RENDER,
@@ -44,9 +45,10 @@ import {
   tileIndex,
 } from "./world/chunk";
 import { ChunkManager } from "./world/chunk_manager";
-import { visibleChunkRect } from "./world/coords";
+import { chunkKey, visibleChunkRect } from "./world/coords";
+import { CrateStore } from "./world/farming/crate";
 import { applySimDelta } from "./world/farming/sim_pipeline";
-import { isEntityWalkable } from "./world/walkability";
+import { buildChunkMask, isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
 const WORLD_SEED = 0xc0ffee;
@@ -112,10 +114,26 @@ async function bootstrap(): Promise<void> {
   const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
   const generationPool = new GenerationPool(WORLD_SEED);
   await generationPool.ready();
+  const pathfinding = new PathfindingClient();
+  // Reused scratch for mask builds — one allocation, not one per chunk-load.
+  const maskScratch = new Uint8Array(1024);
   const chunkManager = new ChunkManager({
     pool: generationPool,
     renderer,
     cacheCapacity: CACHE_CAPACITY,
+    hooks: {
+      // pathfinding.updateChunk copies the mask into a fresh transferable
+      // before posting, so the scratch buffer can be reused across calls.
+      onChunkLoaded: (cx, cy, data) => {
+        pathfinding.updateChunk(chunkKey(cx, cy), buildChunkMask(data, maskScratch));
+      },
+      onChunkEvicted: (cx, cy) => {
+        pathfinding.invalidateChunk(chunkKey(cx, cy));
+      },
+      onChunkMutated: (cx, cy, data) => {
+        pathfinding.updateChunk(chunkKey(cx, cy), buildChunkMask(data, maskScratch));
+      },
+    },
   });
   const simulationPool = new SimulationPool();
   const ioClient = new IoClient();
@@ -129,6 +147,7 @@ async function bootstrap(): Promise<void> {
   inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
   const orders = new OrderBook(0);
   const entityManager = new EntityManager();
+  const crates = new CrateStore();
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.
@@ -146,6 +165,7 @@ async function bootstrap(): Promise<void> {
     orders,
     entityManager,
     possession,
+    crates,
     gameTimeSec: () => gameTimeSec,
   });
 

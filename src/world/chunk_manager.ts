@@ -25,10 +25,23 @@ import {
 import { ChunkCache } from "./chunk_cache";
 import { type ChunkRect, chunkKey, chunkOriginWorldTile } from "./coords";
 
+export interface ChunkManagerHooks {
+  // Fires when a chunk first lands in the cache (generation finished or save
+  // preloaded it). Use for systems that mirror chunk data — pathfinding
+  // walkability mask is the first consumer.
+  onChunkLoaded?: (chunkX: number, chunkY: number, data: ChunkData) => void;
+  // Fires when a chunk is evicted from the LRU cache or removed via clear.
+  onChunkEvicted?: (chunkX: number, chunkY: number) => void;
+  // Fires when a chunk's tile data changes (DIRTY_SIMULATION marked).
+  // Mirrors should re-derive their per-chunk views.
+  onChunkMutated?: (chunkX: number, chunkY: number, data: ChunkData) => void;
+}
+
 export interface ChunkManagerOptions {
   pool: GenerationPool;
   renderer: InstancedTileRenderer;
   cacheCapacity: number;
+  hooks?: ChunkManagerHooks;
 }
 
 // Parsed chunkKey back to (chunkX, chunkY). Format is "<x>,<y>" — see coords.ts.
@@ -43,6 +56,7 @@ export class ChunkManager {
   private readonly cache: ChunkCache<ChunkRecord>;
   private readonly inFlight = new Set<string>();
   private currentKeepSet = new Set<string>();
+  private readonly hooks: ChunkManagerHooks;
   // Single Float32Array reused for every uploadToGpu call. buildInstanceBuffer
   // writes into it in place; the renderer copies it into the GPU buffer
   // synchronously inside addChunk, so reusing across uploads is safe.
@@ -53,9 +67,14 @@ export class ChunkManager {
   constructor(opts: ChunkManagerOptions) {
     this.pool = opts.pool;
     this.renderer = opts.renderer;
+    this.hooks = opts.hooks ?? {};
     this.cache = new ChunkCache<ChunkRecord>({
       capacity: opts.cacheCapacity,
-      onEvict: (key) => this.renderer.removeChunk(key),
+      onEvict: (key) => {
+        this.renderer.removeChunk(key);
+        const [cx, cy] = parseChunkKey(key);
+        this.hooks.onChunkEvicted?.(cx, cy);
+      },
     });
   }
 
@@ -76,10 +95,17 @@ export class ChunkManager {
 
   // Mark dirty for both render (next update will reupload) and simulation
   // (next save will persist). Used by tile actions and sim-result handling.
+  // The mutated hook fires on DIRTY_SIMULATION transitions (low → high) so
+  // walkability mirrors don't get spammed for repeat marks within one frame —
+  // the hook fires once per logical mutation, not once per call.
   markDirty(chunkX: number, chunkY: number, flags = CHUNK_FLAG_DIRTY_RENDER): void {
     const record = this.peekChunk(chunkX, chunkY);
     if (!record) return;
+    const wasSimDirty = (record.flags & CHUNK_FLAG_DIRTY_SIMULATION) !== 0;
     record.flags |= flags;
+    if (!wasSimDirty && (flags & CHUNK_FLAG_DIRTY_SIMULATION) !== 0) {
+      this.hooks.onChunkMutated?.(chunkX, chunkY, record.data);
+    }
   }
 
   // Pre-install a chunk from save before any generation runs. Avoids
@@ -89,6 +115,7 @@ export class ChunkManager {
     // Saved chunks come back already in sync with disk and need GPU upload,
     // so DIRTY_SIMULATION clears and DIRTY_RENDER stays.
     this.cache.set(key, makeChunkRecord(data, CHUNK_FLAG_DIRTY_RENDER), this.currentKeepSet);
+    this.hooks.onChunkLoaded?.(chunkX, chunkY, data);
   }
 
   // Iterate every chunk that has unsaved player/sim changes. Save manager
@@ -165,6 +192,7 @@ export class ChunkManager {
         // Always cache (cheap; lets future pans hit). Pass current keepSet
         // as protected so freshly visible chunks aren't evicted to make room.
         this.cache.set(key, makeChunkRecord(data, CHUNK_FLAG_DIRTY_RENDER), this.currentKeepSet);
+        this.hooks.onChunkLoaded?.(chunkX, chunkY, data);
         if (this.currentKeepSet.has(key) && !this.renderer.hasChunk(key)) {
           this.uploadToGpu(key, data, chunkX, chunkY);
           // Clear render dirty since we just uploaded.

@@ -6,6 +6,7 @@
 // fixed defaults. When those systems get real logic we bump SAVE_VERSION
 // and start serializing them.
 
+import type { ItemId } from "../items";
 import { Mount, Pet } from "./animal";
 import type { Entity, EntityType, Facing } from "./entity";
 import { Villager } from "./villager";
@@ -20,7 +21,16 @@ export interface SavedEntity {
   facing: Facing;
 
   // Per-type payload — only the field matching `type` is read.
-  villager?: { name: string; homeWorldTileX: number; homeWorldTileY: number };
+  villager?: {
+    name: string;
+    homeWorldTileX: number;
+    homeWorldTileY: number;
+    // Phase 7: settler reserves + carried items survive save/load. Job state
+    // (claim, current waypoint) does not — settlers re-enter idle on load
+    // and the emitter rebuilds the board on the first tick.
+    waterReserve: number;
+    carriedItems: { [itemId: number]: number };
+  };
   pet?: {
     species: string;
     penWorldTileX: number;
@@ -51,10 +61,14 @@ export function serializeEntity(e: Entity): SavedEntity {
     facing: e.facing,
   };
   if (e instanceof Villager) {
+    const carried: { [itemId: number]: number } = {};
+    for (const [item, count] of e.carriedItems) carried[item] = count;
     base.villager = {
       name: e.name,
       homeWorldTileX: e.homeWorldTileX,
       homeWorldTileY: e.homeWorldTileY,
+      waterReserve: e.waterReserve,
+      carriedItems: carried,
     };
   } else if (e instanceof Pet) {
     base.pet = {
@@ -87,13 +101,18 @@ export function deserializeEntity(saved: SavedEntity): Entity {
     case "villager": {
       const data = saved.villager;
       if (!data) throw new Error(`saved villager ${saved.id} missing villager payload`);
-      return new Villager(
+      const v = new Villager(
         saved.id,
         position,
         data.name,
         { x: data.homeWorldTileX, y: data.homeWorldTileY },
         saved.facing,
       );
+      v.waterReserve = data.waterReserve;
+      for (const [itemStr, count] of Object.entries(data.carriedItems)) {
+        if (count > 0) v.carriedItems.set(Number(itemStr) as ItemId, count);
+      }
+      return v;
     }
     case "pet": {
       const data = saved.pet;
