@@ -79,6 +79,17 @@ export function injectUiStyles(): void {
       max-width: 480px;
       max-height: calc(100vh - 160px);
     }
+    /* Person window — entity-click context popover. Lives off to the
+       right of the toolbar windows so both can be visible at once. */
+    .ss-window.ss-person {
+      bottom: 110px;
+      right: 8px;
+      left: auto;
+      transform: none;
+      min-width: 240px;
+      max-width: 320px;
+    }
+
     /* Debug window pops above its floating trigger button (bottom-right),
        not above the toolbar — debug is dev-only and lives outside the
        game UI flow. */

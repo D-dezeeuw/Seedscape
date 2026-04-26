@@ -8,6 +8,7 @@ import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
 import { EntityManager } from "./state/entities/entity_manager";
+import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
 import { ITEM_IDS } from "./state/items";
 import { OrderBook } from "./state/orders";
@@ -18,6 +19,7 @@ import { createDebugPanel } from "./ui/debug_panel";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
+import { createPersonWindow } from "./ui/person_window";
 import { createSettingsPanel } from "./ui/settings_panel";
 import { createShopMenu } from "./ui/shop_menu";
 import { injectUiStyles } from "./ui/styles";
@@ -139,6 +141,15 @@ async function bootstrap(): Promise<void> {
 
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
+  const toaster = createToaster(document.body);
+
+  const personWindow = createPersonWindow({
+    parent: document.body,
+    onPossess: (entity) => {
+      const label = entity instanceof Villager ? entity.name : entity.type;
+      toaster.show(`Possessing ${label} — coming next phase`);
+    },
+  });
 
   const detachInteraction = attachTileInteraction({
     canvas,
@@ -148,6 +159,8 @@ async function bootstrap(): Promise<void> {
     player,
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
+    entityManager,
+    onEntityClick: (entity) => personWindow.showFor(entity),
   });
 
   const detachHud = createHud(document.body, player);
@@ -158,7 +171,6 @@ async function bootstrap(): Promise<void> {
     chunkManager,
     tileWorldSize: TILE_WORLD_SIZE,
   });
-  const toaster = createToaster(document.body);
 
   // Toolbar-managed windows. They start hidden; the toolbar opens/closes them.
   const inventoryWindow = createInventoryPanel(document.body, inventory);
@@ -346,6 +358,7 @@ async function bootstrap(): Promise<void> {
       detachInfo();
       detachToolbar();
       detachDebugButton();
+      personWindow.destroy();
       inventoryWindow.destroy();
       ordersWindow.destroy();
       shopWindow.destroy();
