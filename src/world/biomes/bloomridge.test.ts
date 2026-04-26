@@ -71,17 +71,17 @@ describe("bloomridgeTile (8-band)", () => {
     expect(bloomridgeTile(2, 3)).toBe(BLOOMRIDGE_TILES.beachSand);
   });
 
-  test("band 3 splits on moisture: low → dry grass, high → rich soil", () => {
+  test("band 3 splits on moisture: only the driest is dry grass, rest is rich soil", () => {
     expect(bloomridgeTile(3, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
-    expect(bloomridgeTile(3, 1)).toBe(BLOOMRIDGE_TILES.dryGrass);
+    expect(bloomridgeTile(3, 1)).toBe(BLOOMRIDGE_TILES.richSoil);
     expect(bloomridgeTile(3, 2)).toBe(BLOOMRIDGE_TILES.richSoil);
     expect(bloomridgeTile(3, 3)).toBe(BLOOMRIDGE_TILES.richSoil);
   });
 
-  test("band 4 splits on moisture: dry → grass, anything moister → farmland", () => {
-    expect(bloomridgeTile(4, 0)).toBe(BLOOMRIDGE_TILES.dryGrass);
-    expect(bloomridgeTile(4, 1)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
-    expect(bloomridgeTile(4, 3)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
+  test("band 4 is always farmland (moisture-independent)", () => {
+    for (let m = 0; m < MOISTURE_BANDS; m++) {
+      expect(bloomridgeTile(4, m)).toBe(BLOOMRIDGE_TILES.farmlandUntilled);
+    }
   });
 
   test("band 5 → dry grass", () => {

@@ -33,20 +33,20 @@ export function quantizeNoise(value: number, bands: number): number {
 // narrower distribution than the [0, 1] envelope suggests: at the live
 // world seed roughly 99% of values fall in [0.20, 0.85]. Thresholds
 // below are tuned against that empirical histogram so each band gets
-// a meaningful slice of actual tiles, not just nominal range. Values
-// favor a green farming biome with distinct shorelines and only a
-// little exposed rock at the highest peaks.
+// a meaningful slice of actual tiles, not just nominal range. The
+// distribution favors a green farming biome with prominent farmland
+// and rich soil; dry grass and rock are accents, not the canvas.
 //
 //   Threshold (cum)  Band                        ≈ % of tiles
 //   < 0.27           0  deep water                   ~4%
 //   < 0.32           1  shallow water               ~10%
 //   < 0.36           2  beach                       ~10%
-//   < 0.40           3  rich soil / dry grass       ~13%
-//   < 0.53           4  farmland untilled           ~25%
-//   < 0.67           5  dry grass                   ~30%
-//   < 0.73           6  barren stone                 ~5%
-//   ≥ 0.73           7  rocky outcrop                ~3%
-export const TERRAIN_THRESHOLDS: ReadonlyArray<number> = [0.27, 0.32, 0.36, 0.4, 0.53, 0.67, 0.73];
+//   < 0.44           3  rich soil / dry grass       ~19%
+//   < 0.59           4  farmland untilled           ~35%
+//   < 0.66           5  dry grass                   ~13%
+//   < 0.72           6  barren stone                 ~5%
+//   ≥ 0.72           7  rocky outcrop                ~3%
+export const TERRAIN_THRESHOLDS: ReadonlyArray<number> = [0.27, 0.32, 0.36, 0.44, 0.59, 0.66, 0.72];
 
 // Map a [-1, 1] noise value to a terrain band [0..7] via TERRAIN_THRESHOLDS.
 // Returns the index of the first threshold the normalized value falls below;
@@ -72,12 +72,13 @@ export function bloomridgeTile(terrainBand: number, moistureBand: number): numbe
     case 2:
       return BLOOMRIDGE_TILES.beachSand;
     case 3:
-      // Lush band closest to water — moisture decides between rich soil
-      // (the prime farmland substrate) and dry grass.
-      return moistureBand >= 2 ? BLOOMRIDGE_TILES.richSoil : BLOOMRIDGE_TILES.dryGrass;
+      // Lush band closest to water — most of it is rich soil; only the
+      // driest sliver (moisture band 0) shows up as dry grass.
+      return moistureBand >= 1 ? BLOOMRIDGE_TILES.richSoil : BLOOMRIDGE_TILES.dryGrass;
     case 4:
-      // Mid-elevation: untilled farmland in moist regions, dry grass elsewhere.
-      return moistureBand >= 1 ? BLOOMRIDGE_TILES.farmlandUntilled : BLOOMRIDGE_TILES.dryGrass;
+      // Mid-elevation: this is Bloomridge proper. Farmland regardless of
+      // moisture — band 5 covers the actual dry-grass plateau above it.
+      return BLOOMRIDGE_TILES.farmlandUntilled;
     case 5:
       return BLOOMRIDGE_TILES.dryGrass;
     case 6:
