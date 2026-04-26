@@ -11,7 +11,12 @@
 
 import { Animal, Mount, Pet } from "../state/entities/animal";
 import type { Entity } from "../state/entities/entity";
-import { LivingEntity, type MemoryEvent } from "../state/entities/living_entity";
+import {
+  LivingEntity,
+  MEMORY_EVENT_TYPES,
+  type MemoryEvent,
+} from "../state/entities/living_entity";
+import { ITEM_DEFS } from "../state/items";
 import { Villager } from "../state/entities/villager";
 import {
   JOB_KIND_HARVEST_CROP,
@@ -120,7 +125,12 @@ const SHORT_TERM_MEMORY: DetailSection = {
   applies: (e) => e instanceof LivingEntity,
   render: (e) => {
     const buf = (e as LivingEntity).shortTermMemory;
-    const events = buf.filter((m) => m.type !== 0);
+    const events = buf
+      .filter((m) => m.type !== 0)
+      // Newest first — shortTermHead points at the next slot to write,
+      // so events ordered by tick descending give the most recent at top.
+      .slice()
+      .sort((a, b) => b.tick - a.tick);
     if (events.length === 0) return empty("no recent events");
     return events.map(renderMemoryEvent).join("");
   },
@@ -283,6 +293,37 @@ function prettifyType(e: Entity): string {
 }
 
 function renderMemoryEvent(m: MemoryEvent): string {
-  const sign = m.moodDelta > 0 ? "+" : "";
-  return row(`tick ${m.tick}`, `type ${m.type} · ${sign}${m.moodDelta} mood · weight ${m.weight}`);
+  return row(`t${m.tick}`, memoryEventLabel(m));
+}
+
+// Human-readable label for a memory event. Action events (Phase 7) get
+// a verb + item + tile suffix; unknown / future event types fall back
+// to the raw enum number so a missing translation is at least debuggable.
+function memoryEventLabel(m: MemoryEvent): string {
+  const tile = m.tileX !== 0 || m.tileY !== 0 ? ` at (${m.tileX}, ${m.tileY})` : "";
+  switch (m.type) {
+    case MEMORY_EVENT_TYPES.HARVESTED:
+      return `Harvested ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.PLANTED:
+      return `Planted ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.WATERED: {
+      const what = m.subjectId !== 0 ? ` ${itemName(m.subjectId)}` : " a crop";
+      return `Watered${what}${tile}`;
+    }
+    case MEMORY_EVENT_TYPES.HAULED_WATER:
+      return `Filled water${tile}`;
+    case MEMORY_EVENT_TYPES.HAULED_SEED:
+      return `Picked up ${itemName(m.subjectId)}${tile}`;
+    case MEMORY_EVENT_TYPES.DEPOSITED:
+      return `Stored ${itemName(m.subjectId)}${tile}`;
+    default:
+      return `Event #${m.type}${tile}`;
+  }
+}
+
+// Display name for an item id; falls back to "#id" for unknown ids
+// (e.g., if a future seed/produce isn't yet in ITEM_DEFS).
+function itemName(itemId: number): string {
+  const def = ITEM_DEFS.get(itemId as Parameters<typeof ITEM_DEFS.get>[0]);
+  return def?.displayName ?? `#${itemId}`;
 }

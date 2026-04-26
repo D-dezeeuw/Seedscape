@@ -35,6 +35,7 @@ import {
 const TILE_FARMLAND_TILLED = 13;
 
 import type { EntityServices, EntityTickContext } from "./entity";
+import { MEMORY_EVENT_TYPES, recordMemory } from "./living_entity";
 import { MAX_WATER_RESERVE, type Villager } from "./villager";
 
 // Tunables. Adjusted to feel responsive without a setter.
@@ -494,12 +495,16 @@ export class VillagerJobController {
 
   private actAtSource(
     v: Villager,
-    _ctx: EntityTickContext,
+    ctx: EntityTickContext,
     services: EntityServices,
     job: Job,
   ): void {
     const tw = services.tileWorld;
     if (!tw) return;
+    // Sim tick is the canonical "when did this happen" stamp for memory
+    // entries. Falls back to ctx.time floored when the test harness
+    // doesn't pass simTick.
+    const memTick = ctx.simTick ?? Math.floor(ctx.time);
     switch (job.kind) {
       case JOB_KIND_HAUL_WATER: {
         // Settler stands on a tile adjacent to a water source; refill from
@@ -510,6 +515,12 @@ export class VillagerJobController {
           const t = tw.readTile(n.x, n.y);
           if (t && isWaterSource(t.tileId)) {
             v.waterReserve = MAX_WATER_RESERVE;
+            recordMemory(v, {
+              type: MEMORY_EVENT_TYPES.HAULED_WATER,
+              tick: memTick,
+              tileX: n.x,
+              tileY: n.y,
+            });
             return;
           }
         }
@@ -522,6 +533,17 @@ export class VillagerJobController {
         // Source IS the crop tile.
         if (tw.waterAt(job.source.x, job.source.y)) {
           v.waterReserve--;
+          // subjectId carries the crop's produce item — looked up via
+          // the tile so the memory shows "Watered wheat" not just "tile".
+          const t = tw.readTile(job.source.x, job.source.y);
+          const crop = t ? cropForTile(t.tileId) : null;
+          recordMemory(v, {
+            type: MEMORY_EVENT_TYPES.WATERED,
+            tick: memTick,
+            subjectId: crop?.produceItem ?? 0,
+            tileX: job.source.x,
+            tileY: job.source.y,
+          });
         }
         break;
       }
@@ -529,6 +551,13 @@ export class VillagerJobController {
         const result = tw.harvestAt(job.source.x, job.source.y);
         if (result.applied && result.produceItem != null && result.yield != null) {
           v.pickup(result.produceItem as Parameters<typeof v.pickup>[0], result.yield);
+          recordMemory(v, {
+            type: MEMORY_EVENT_TYPES.HARVESTED,
+            tick: memTick,
+            subjectId: result.produceItem,
+            tileX: job.source.x,
+            tileY: job.source.y,
+          });
         }
         break;
       }
@@ -544,7 +573,16 @@ export class VillagerJobController {
           if (!t) continue;
           if (!containerForTile(t.tileId)) continue;
           const taken = services.crates.withdraw(n.x, n.y, seedId as ItemId, 1);
-          if (taken > 0) v.pickup(seedId as ItemId, taken);
+          if (taken > 0) {
+            v.pickup(seedId as ItemId, taken);
+            recordMemory(v, {
+              type: MEMORY_EVENT_TYPES.HAULED_SEED,
+              tick: memTick,
+              subjectId: seedId,
+              tileX: n.x,
+              tileY: n.y,
+            });
+          }
           break;
         }
         break;
@@ -565,6 +603,14 @@ export class VillagerJobController {
         if (!planted) {
           // Refund the seed if the tile somehow rejected the plant.
           v.pickup(seedId as ItemId, dropped);
+        } else {
+          recordMemory(v, {
+            type: MEMORY_EVENT_TYPES.PLANTED,
+            tick: memTick,
+            subjectId: seedId,
+            tileX: job.source.x,
+            tileY: job.source.y,
+          });
         }
         break;
       }
@@ -573,7 +619,7 @@ export class VillagerJobController {
 
   private actAtTarget(
     v: Villager,
-    _ctx: EntityTickContext,
+    ctx: EntityTickContext,
     services: EntityServices,
     job: Job,
   ): void {
@@ -593,9 +639,29 @@ export class VillagerJobController {
       }
     }
     if (!cratePos) return;
+    const memTick = ctx.simTick ?? Math.floor(ctx.time);
+    let totalStored = 0;
+    let lastItem: ItemId | 0 = 0;
     for (const [item, count] of Array.from(v.carriedItems)) {
       const stored = crates.deposit(cratePos.x, cratePos.y, item, count);
-      if (stored > 0) v.drop(item, stored);
+      if (stored > 0) {
+        v.drop(item, stored);
+        totalStored += stored;
+        lastItem = item;
+      }
+    }
+    if (totalStored > 0) {
+      // One DEPOSITED entry per delivery — even if multiple item types
+      // got stored. subjectId carries the last (or only) item, which is
+      // typically the produce kind being routed; the tile coords point
+      // at the crate itself so the memory reads as "stored wheat at (8, 8)".
+      recordMemory(v, {
+        type: MEMORY_EVENT_TYPES.DEPOSITED,
+        tick: memTick,
+        subjectId: lastItem as number,
+        tileX: cratePos.x,
+        tileY: cratePos.y,
+      });
     }
   }
 }

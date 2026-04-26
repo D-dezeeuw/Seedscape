@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { namePool, pickName } from "./names";
+import { namePool, pickFullName, pickName, surnamePool } from "./names";
 
 describe("pickName", () => {
   test("returns a name from the matching pool", () => {
@@ -24,5 +24,42 @@ describe("pickName", () => {
     const villagers = new Set(namePool("villager"));
     const mounts = new Set(namePool("mount"));
     for (const m of mounts) expect(villagers.has(m)).toBe(false);
+  });
+});
+
+describe("pickFullName", () => {
+  test("returns first + surname combo from the canonical pools", () => {
+    const full = pickFullName(1234);
+    const parts = full.split(" ");
+    // Surnames may contain a space ("De Jong", "Van den Berg"). Last
+    // word is the surname's tail; first word must be from first names.
+    const first = parts[0] as string;
+    expect(namePool("villager")).toContain(first);
+    const surname = parts.slice(1).join(" ");
+    expect(surnamePool()).toContain(surname);
+  });
+
+  test("deterministic", () => {
+    expect(pickFullName(99)).toBe(pickFullName(99));
+  });
+
+  test("first and surname draw independently across seeds", () => {
+    // Generate a wide swath and verify we see >1 unique surname per
+    // first name — proves the streams aren't locked together.
+    const byFirst = new Map<string, Set<string>>();
+    for (let s = 1; s < 200; s++) {
+      const full = pickFullName(s);
+      const parts = full.split(" ");
+      const first = parts[0] as string;
+      const surname = parts.slice(1).join(" ");
+      const set = byFirst.get(first) ?? new Set();
+      set.add(surname);
+      byFirst.set(first, set);
+    }
+    let pairsWithMultipleSurnames = 0;
+    for (const set of byFirst.values()) {
+      if (set.size > 1) pairsWithMultipleSurnames++;
+    }
+    expect(pairsWithMultipleSurnames).toBeGreaterThan(0);
   });
 });

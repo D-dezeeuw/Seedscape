@@ -400,6 +400,15 @@ describe("VillagerJobController integration", () => {
     expect(chunk.data.tileId[tileIndex(3, 3)]).toBe(100);
     // Dispenser drained by 1 (settler picked up exactly one seed).
     expect(world.crates.countAt(8, 8, ITEM_IDS.WHEAT_SEED)).toBe(2);
+    // Memory: settler logged both the haul and the plant.
+    const events = v.shortTermMemory.filter((m) => m.type !== 0);
+    const types = events.map((m) => m.type).sort();
+    expect(types).toContain(5); // HAULED_SEED
+    expect(types).toContain(2); // PLANTED
+    const planted = events.find((m) => m.type === 2);
+    expect(planted?.tileX).toBe(3);
+    expect(planted?.tileY).toBe(3);
+    expect(planted?.subjectId).toBe(ITEM_IDS.WHEAT_SEED);
   });
 
   test("stuck settler re-plans once before cancelling", async () => {

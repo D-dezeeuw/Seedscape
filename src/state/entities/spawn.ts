@@ -6,7 +6,7 @@ import { CHUNK_SIZE, type ChunkData, tileIndex } from "../../world/chunk";
 import type { ChunkManager } from "../../world/chunk_manager";
 import { isEntityWalkable } from "../../world/walkability";
 import type { EntityManager } from "./entity_manager";
-import { pickName } from "./names";
+import { pickFullName } from "./names";
 import { Villager } from "./villager";
 
 const CHUNK_LOAD_TIMEOUT_MS = 5000;
@@ -97,7 +97,7 @@ export async function spawnInitialEntities(opts: SpawnInitialOptions): Promise<V
     findWalkableLocal(data, settlerLocal.x, settlerLocal.y, taken);
   if (!companionLocal) return [settler];
 
-  const companionName = pickName("villager", opts.worldSeed ^ 0x9e37);
+  const companionName = pickFullName(opts.worldSeed ^ 0x9e37);
   const companion = placeVillager(opts.entityManager, companionLocal, companionName);
   return [settler, companion];
 }

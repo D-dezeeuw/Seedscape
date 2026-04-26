@@ -5,6 +5,7 @@
 
 import type { Camera } from "../input/camera";
 import type { EntityManager } from "../state/entities/entity_manager";
+import { pickFullName } from "../state/entities/names";
 import { Villager } from "../state/entities/villager";
 import type { Inventory } from "../state/inventory";
 import { ITEM_IDS } from "../state/items";
@@ -263,6 +264,11 @@ function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {
     const wx = cx0 + Math.cos(angle) * r;
     const wy = cy0 + Math.sin(angle) * r;
     const id = deps.entityManager.allocateId();
+    // Mix the camera coords into the seed so successive "+25" presses
+    // don't all roll the same names — id alone would collide with the
+    // initial spawn ids on a fresh world. Camera nudges deduplicate
+    // without making names time-dependent.
+    const seed = id ^ ((cx0 * 73856093) ^ (cy0 * 19349663));
     const v = new Villager(
       id,
       {
@@ -271,7 +277,7 @@ function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {
         localX: ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
         localY: ((wy % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
       },
-      `D${id}`,
+      pickFullName(seed),
       { x: Math.floor(wx), y: Math.floor(wy) },
     );
     deps.entityManager.add(v);
