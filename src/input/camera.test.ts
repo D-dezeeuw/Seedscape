@@ -10,9 +10,12 @@ describe("Camera.panTo animation", () => {
     c.panTo(10, 0, 1000);
     expect(c.isAnimating()).toBe(true);
 
-    // Halfway: smoothstep(0.5) = 0.5, so x ≈ 5.
+    // Halfway: smoothstep(0.5) = 0.5, so x ≈ 5. Tolerance is 2 decimals
+    // because `start` is captured before panTo runs, so anim.startMs lands
+    // a fraction of a ms later than `start` — on slower CI hosts that drift
+    // can push the computed t to ~0.498, well within 0.005 of 5.0.
     c.tickAnimation(start + 500);
-    expect(c.x).toBeCloseTo(5, 3);
+    expect(c.x).toBeCloseTo(5, 2);
 
     // Past the duration: snaps exactly to target and stops animating.
     c.tickAnimation(start + 1100);
