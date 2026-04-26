@@ -193,6 +193,7 @@ async function bootstrap(): Promise<void> {
   const settlersWindow = createSettlersWindow({
     parent: document.body,
     entityManager,
+    onSelect: (villager) => personWindow.showFor(villager),
     onGoTo: (x, y) => camera.panTo(x, y),
   });
   const settingsWindow = createSettingsPanel({ parent: document.body });

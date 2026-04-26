@@ -165,6 +165,19 @@ export function injectUiStyles(): void {
       padding: 4px 8px;
       font-size: 11px;
     }
+    .ss-text-link {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #e8eaed;
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .ss-text-link:hover {
+      color: #5b9fc0;
+      text-decoration: underline;
+    }
     .ss-row {
       display: flex; justify-content: space-between; gap: 8px;
       padding: 2px 0;
