@@ -14,6 +14,7 @@
 
 import { getItemDef } from "../state/items";
 import type { PossessedAction } from "../state/possession_actions";
+import { wrapPanelStructure } from "./window";
 
 export interface PossessionActionBarApi {
   // Call from the per-frame loop. Cheap when nothing changed —
@@ -47,6 +48,7 @@ export function createPossessionActionBar(deps: PossessionActionBarDeps): Posses
     <div class="ss-possession-hint" data-field="hint" style="display:none;"></div>
   `;
   deps.parent.appendChild(bar);
+  wrapPanelStructure(bar);
 
   const button = bar.querySelector('[data-act="primary"]') as HTMLButtonElement;
   const labelEl = bar.querySelector('[data-field="label"]') as HTMLElement;

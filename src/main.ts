@@ -715,7 +715,13 @@ async function bootstrap(): Promise<void> {
 
   const start = performance.now();
   let lastFrameMs = start;
+  // Set in beforeunload so an already-queued rAF doesn't draw against
+  // GL resources we just deleted (caused INVALID_OPERATION console
+  // spam during reload/HMR).
+  let disposed = false;
+  let rafId = 0;
   const frame = (timestampMs: number): void => {
+    if (disposed) return;
     if (resizeCanvasToDisplaySize(canvas)) {
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
@@ -824,13 +830,15 @@ async function bootstrap(): Promise<void> {
     }
 
     overlay.tick(timestampMs);
-    requestAnimationFrame(frame);
+    rafId = requestAnimationFrame(frame);
   };
-  requestAnimationFrame(frame);
+  rafId = requestAnimationFrame(frame);
 
   window.addEventListener(
     "beforeunload",
     () => {
+      disposed = true;
+      cancelAnimationFrame(rafId);
       window.clearInterval(simInterval);
       window.clearInterval(saveInterval);
       window.removeEventListener("keydown", onEscKey);

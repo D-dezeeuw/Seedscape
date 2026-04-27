@@ -8,6 +8,11 @@ export function injectUiStyles(): void {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
+    /* Every panel is a flex column: a sticky .ss-panel-header on top
+       and a scrolling .ss-panel-body below. The panel itself owns
+       the chrome (background, border, blur) and clips the corners;
+       header/body own their own padding so the scroll-bar lives
+       inside the rounded edge. */
     .ss-panel {
       position: fixed;
       background: rgba(20, 26, 32, 0.92);
@@ -15,27 +20,40 @@ export function injectUiStyles(): void {
       font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 6px;
-      padding: 8px 10px;
+      padding: 0;
       pointer-events: auto;
       user-select: none;
       z-index: 5;
       backdrop-filter: blur(4px);
-      max-height: calc(100vh - 200px);
-      overflow-y: auto;
+      max-height: calc(100vh - 16px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
-    .ss-panel h3 {
-      margin: 0 0 6px 0;
+    .ss-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex: 0 0 auto;
+    }
+    .ss-panel-header h3 {
+      margin: 0;
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: #a0b3c0;
       font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
     }
-    .ss-window-close {
+    .ss-panel-body {
+      padding: 8px 10px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .ss-panel-close {
       background: transparent;
       border: none;
       color: #708090;
@@ -46,7 +64,7 @@ export function injectUiStyles(): void {
       cursor: pointer;
       border-radius: 3px;
     }
-    .ss-window-close:hover {
+    .ss-panel-close:hover {
       color: #e8eaed;
       background: rgba(255,255,255,0.08);
     }
