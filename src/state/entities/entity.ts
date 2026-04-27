@@ -63,6 +63,10 @@ export interface EntityServices {
   jobs?: import("../jobs").JobBoard;
   pathfinding?: import("../../workers/pathfinding_client").PathfindingClient;
   crates?: import("../../world/farming/crate").CrateStore;
+  // Phase 8: per-building input/output buffers for FEED_BUILDING /
+  // HAUL_OUTPUT job acts. Optional — tests that don't exercise
+  // building-hauling can omit it.
+  buildingBuffers?: import("../../world/farming/building_buffer").BuildingBufferStore;
   tileWorld?: TileWorldAccess;
 }
 

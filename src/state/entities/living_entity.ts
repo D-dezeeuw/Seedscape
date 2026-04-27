@@ -77,6 +77,9 @@ export const MEMORY_EVENT_TYPES = {
   HAULED_WATER: 4,
   HAULED_SEED: 5,
   DEPOSITED: 6,
+  // Phase 8 — settler-driven production hauling.
+  FED_BUILDING: 7, // dropped input items into a building's input buffer
+  HAULED_OUTPUT: 8, // pulled items from a building's output buffer
 } as const;
 export type MemoryEventType = (typeof MEMORY_EVENT_TYPES)[keyof typeof MEMORY_EVENT_TYPES];
 

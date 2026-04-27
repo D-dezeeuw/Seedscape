@@ -16,12 +16,19 @@ import {
   tileIndex,
 } from "../../world/chunk";
 import { chunkKey } from "../../world/coords";
+import { BuildingBufferStore } from "../../world/farming/building_buffer";
+import { buildingInputCap } from "../../world/farming/building_buffer_tick";
 import { CrateStore } from "../../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../../world/farming/crop_registry";
 import { harvestTile, plantSeed, setWaterLevel, waterTile } from "../../world/farming/tile_actions";
 import { buildChunkMask } from "../../world/walkability";
 import { ITEM_IDS, type ItemId } from "../items";
-import { JOB_KIND_HARVEST_CROP, JobBoard } from "../jobs";
+import {
+  JOB_KIND_FEED_BUILDING,
+  JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
+  JobBoard,
+} from "../jobs";
 import type { EntityServices, EntityTickContext, TileWorldAccess } from "./entity";
 import { Villager } from "./villager";
 
@@ -85,6 +92,7 @@ class FakeWorker {
 interface World {
   chunks: Map<string, ChunkRecord>;
   crates: CrateStore;
+  buffers: BuildingBufferStore;
 }
 
 function buildWorld(): World {
@@ -95,6 +103,7 @@ function buildWorld(): World {
   return {
     chunks: new Map([[chunkKey(0, 0), record]]),
     crates: new CrateStore(),
+    buffers: new BuildingBufferStore(),
   };
 }
 
@@ -182,6 +191,7 @@ function makeServices(world: World): {
     jobs: board,
     pathfinding: client,
     crates: world.crates,
+    buildingBuffers: world.buffers,
     tileWorld: tileWorldFor(world, dirty),
   };
   return { services, client, board };
@@ -607,5 +617,105 @@ describe("VillagerJobController integration", () => {
     expect(stuckSinceSet).toBe(true);
     expect(replanRequested).toBe(true);
     expect(cancelled).toBe(true);
+  });
+
+  test("FEED_BUILDING: settler hauls input from crate to mill input buffer", async () => {
+    // Setup: mill at (15,15), crate at (12,12) with 6 wheat. Settler
+    // at (10,10). Emit a FEED_BUILDING job; settler should walk to
+    // crate, pick up wheat, walk to mill, drop into the input buffer.
+    const chunk = world.chunks.get(chunkKey(0, 0))!;
+    const MILL_TILE = 200;
+    chunk.data.tileId[tileIndex(15, 15)] = MILL_TILE;
+    chunk.data.tileId[tileIndex(12, 12)] = CRATE_TILE;
+    world.crates.deposit(12, 12, ITEM_IDS.WHEAT, 6);
+
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(50, { chunkX: 0, chunkY: 0, localX: 10.5, localY: 10.5 }, "F", {
+      x: 10,
+      y: 10,
+    });
+
+    board.enqueue({
+      kind: JOB_KIND_FEED_BUILDING,
+      source: { x: 15, y: 15 },
+      target: { x: 15, y: 15 },
+      priority: 2,
+      payload: ITEM_IDS.WHEAT,
+      holdItems: [ITEM_IDS.WHEAT],
+    });
+
+    let time = 0;
+    for (let i = 0; i < 600; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (board.size() === 0 && v.jobs.isIdle()) break;
+    }
+
+    expect(board.size()).toBe(0);
+    expect(v.jobs.isIdle()).toBe(true);
+    // Mill input buffer should now have wheat. The settler should pull
+    // up to def.inputQuantity = 3 per trip; one job claim → one trip.
+    expect(world.buffers.totalInputAt(15, 15)).toBeGreaterThan(0);
+    // Crate drained by exactly the amount the buffer received.
+    const inBuffer = world.buffers.totalInputAt(15, 15);
+    expect(world.crates.countAt(12, 12, ITEM_IDS.WHEAT)).toBe(6 - inBuffer);
+    // Memory event recorded.
+    const memTypes = v.shortTermMemory.filter((m) => m.type !== 0).map((m) => m.type);
+    expect(memTypes).toContain(7); // FED_BUILDING
+  });
+
+  test("HAUL_OUTPUT: settler hauls finished output from mill to crate", async () => {
+    // Setup: mill at (15,15) with 4 flour in its OUTPUT buffer (bypassing
+    // the cycle since the sim is mocked here — we plant the buffer
+    // directly). Empty crate at (12,12). Settler at (18,18).
+    const chunk = world.chunks.get(chunkKey(0, 0))!;
+    const MILL_TILE = 200;
+    chunk.data.tileId[tileIndex(15, 15)] = MILL_TILE;
+    chunk.data.tileId[tileIndex(12, 12)] = CRATE_TILE;
+    // Stash flour in the output buffer at the mill. Cap is generous; we
+    // just need a positive amount to haul.
+    world.buffers.addOutput(15, 15, ITEM_IDS.FLOUR, 4, 100);
+
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(60, { chunkX: 0, chunkY: 0, localX: 18.5, localY: 18.5 }, "H", {
+      x: 18,
+      y: 18,
+    });
+
+    board.enqueue({
+      kind: JOB_KIND_HAUL_OUTPUT,
+      source: { x: 15, y: 15 },
+      target: { x: 15, y: 15 },
+      priority: 2,
+      payload: ITEM_IDS.FLOUR,
+      holdItems: [ITEM_IDS.FLOUR],
+    });
+
+    let time = 0;
+    for (let i = 0; i < 600; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (board.size() === 0 && v.jobs.isIdle()) break;
+    }
+
+    expect(board.size()).toBe(0);
+    expect(v.jobs.isIdle()).toBe(true);
+    // Crate now has flour; output buffer drained by the same amount.
+    const inCrate = world.crates.countAt(12, 12, ITEM_IDS.FLOUR);
+    expect(inCrate).toBeGreaterThan(0);
+    expect(world.buffers.totalOutputAt(15, 15)).toBe(4 - inCrate);
+    // HAULED_OUTPUT memory event recorded.
+    const memTypes = v.shortTermMemory.filter((m) => m.type !== 0).map((m) => m.type);
+    expect(memTypes).toContain(8); // HAULED_OUTPUT
+    // Suppress unused-import warning — buildingInputCap is exported for
+    // the building_window UI; the import here keeps the test in sync if
+    // the cap math ever moves.
+    void buildingInputCap;
   });
 });

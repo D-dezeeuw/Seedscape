@@ -613,6 +613,7 @@ async function bootstrap(): Promise<void> {
     jobs: jobBoard,
     pathfinding,
     crates,
+    buildingBuffers,
     tileWorld,
   };
 
