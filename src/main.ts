@@ -193,6 +193,7 @@ async function bootstrap(): Promise<void> {
     entityManager,
     possession,
     crates,
+    buildingBuffers,
     gameTimeSec: () => gameTimeSec,
   });
 
