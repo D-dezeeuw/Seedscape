@@ -450,6 +450,54 @@ describe("VillagerJobController integration", () => {
     expect(v.jobs.isIdle()).toBe(true);
   });
 
+  test("auto-deposit respects Job.holdItems for non-default-sticky items", async () => {
+    // Settler is overweight with FLOUR (no defaultSticky). With NO claimed
+    // job declaring flour as held, the deposit injection runs. With a
+    // claimed job that has holdItems=[FLOUR], the same scenario must
+    // skip flour and refuse to inject — this is the foundation Phase 8
+    // hauling jobs will lean on.
+    world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(8, 8)] = CRATE_TILE;
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(99, { chunkX: 0, chunkY: 0, localX: 12.5, localY: 12.5 }, "F", {
+      x: 12,
+      y: 12,
+    });
+    // 4 flour = 100 weight (max), well past the 70 threshold.
+    v.pickup(ITEM_IDS.FLOUR, 4);
+    expect(v.isOverweight()).toBe(true);
+
+    // Simulate a claimed haul job with holdItems=[FLOUR]. We use
+    // HARVEST_CROP as the kind (any kind works for this test) and
+    // pre-claim it so the controller doesn't try to start it.
+    const heldJobId = board.enqueue({
+      kind: JOB_KIND_HARVEST_CROP,
+      source: { x: 12, y: 12 },
+      target: { x: 12, y: 12 },
+      priority: 1,
+      payload: 0,
+      holdItems: [ITEM_IDS.FLOUR],
+    });
+    // Mark as claimed by THIS settler so stickyItemsFor sees it.
+    const heldJob = board.get(heldJobId)!;
+    heldJob.claimedBy = v.id;
+
+    let time = 0;
+    let sawDepositTask = false;
+    for (let i = 0; i < 200; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (v.jobs.currentTaskKind() === "deposit") sawDepositTask = true;
+    }
+
+    // Sticky from the held job → deposit must NOT fire even though the
+    // settler is overweight.
+    expect(sawDepositTask).toBe(false);
+    expect(v.carriedItems.get(ITEM_IDS.FLOUR)).toBe(4);
+  });
+
   test("auto-deposit does not fire when only seeds (sticky) are carried", async () => {
     // Same scenario but the settler is hauling seeds (sticky) — no deposit
     // task should be injected. With no jobs claimable the settler simply

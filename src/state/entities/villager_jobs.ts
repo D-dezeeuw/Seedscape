@@ -29,7 +29,7 @@ import {
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
 import { isWaterSource } from "../../world/walkability";
-import type { ItemId } from "../items";
+import { isItemDefaultSticky, type ItemId } from "../items";
 import {
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_SEED,
@@ -275,7 +275,7 @@ export class VillagerJobController {
     // things in the bag are sticky (seeds today; Job.holdItems in the
     // next commit will generalise this). The injection is one task at
     // a time — after deposit pops, the next idle tick will re-evaluate.
-    if (v.isOverweight() && hasDumpableItems(v) && services.crates && services.tileWorld) {
+    if (v.isOverweight() && hasDumpableItems(v, services) && services.crates && services.tileWorld) {
       const target = pickDepositTarget(v, services, fromX, fromY);
       if (target) {
         this.pushTask({
@@ -348,6 +348,12 @@ export class VillagerJobController {
           target: { x: stock.standing.x, y: stock.standing.y },
           priority: 5,
           payload: stock.itemId,
+          // The seed we're about to fetch is reserved for the next
+          // PLANT_SEED claim — don't let an auto-deposit detour drop it.
+          // Defensive even though seeds are item-default-sticky: if a
+          // future settler/inventory change drops the default, this
+          // job-level claim still keeps the seed pinned.
+          holdItems: [stock.itemId],
         });
         job = board.claim(v.id, { fromX, fromY });
         if (!job || job.id !== id) {
@@ -398,6 +404,10 @@ export class VillagerJobController {
         return false;
       }
       job.payload = seedId;
+      // The seed travels with the settler to the tilled tile; mark it
+      // as held so any mid-claim auto-deposit (none today, but the
+      // hook is here for future mid-task injection) keeps the seed.
+      job.holdItems = [seedId];
     }
 
     // Verify the source tile still matches what was emitted. Player
@@ -997,14 +1007,36 @@ function carriedSeedId(v: Villager): ItemId | null {
   return null;
 }
 
+// Compute the union of every sticky item kind for a settler at this
+// moment. Sources:
+//   - Item def's defaultSticky (e.g. seeds — tiny, always useful)
+//   - holdItems on every job currently claimed by this settler
+// The deposit gate consults this set: anything in it stays carried
+// through the auto-deposit pass. Computed on demand because both
+// inputs (which items the settler holds, which jobs are claimed)
+// change per tick — caching invites stale exemptions.
+function stickyItemsFor(v: Villager, services: EntityServices): Set<ItemId> {
+  const out = new Set<ItemId>();
+  for (const [item] of v.carriedItems) {
+    if (isItemDefaultSticky(item)) out.add(item);
+  }
+  if (services.jobs) {
+    for (const job of services.jobs.all()) {
+      if (job.claimedBy !== v.id) continue;
+      if (!job.holdItems) continue;
+      for (const id of job.holdItems) out.add(id);
+    }
+  }
+  return out;
+}
+
 // True if the settler is carrying at least one item that would be
-// dumped by an auto-deposit. Seeds are sticky (they're tiny and
-// always useful for the next PLANT_SEED). Job.holdItems (next commit)
-// will widen this exemption to per-job sticky lists.
-function hasDumpableItems(v: Villager): boolean {
+// dumped by an auto-deposit (i.e. NOT sticky for this entity right now).
+function hasDumpableItems(v: Villager, services: EntityServices): boolean {
+  const sticky = stickyItemsFor(v, services);
   for (const [item, count] of v.carriedItems) {
     if (count <= 0) continue;
-    if (!isSeedItem(item)) return true;
+    if (!sticky.has(item)) return true;
   }
   return false;
 }
@@ -1022,13 +1054,14 @@ function pickDepositTarget(
   const crates = services.crates;
   const tw = services.tileWorld;
   if (!crates || !tw) return null;
+  const sticky = stickyItemsFor(v, services);
   // Try each dumpable item in turn (Map insertion order). The first
   // one that finds a willing crate wins — we don't need to deposit
   // *all* items in one trip, the next idle tick will inject another
   // deposit if the settler is still overweight.
   for (const [item, count] of v.carriedItems) {
     if (count <= 0) continue;
-    if (isSeedItem(item)) continue;
+    if (sticky.has(item)) continue;
     const hit = crates.nearestContainerForDeposit(tw, fromX, fromY, item);
     if (hit) {
       return { crate: hit.container, standing: hit.standing };

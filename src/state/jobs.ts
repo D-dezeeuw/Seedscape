@@ -56,6 +56,13 @@ export interface Job {
   // Frame/time the job was last advanced. Settlers stamp this so the board
   // can detect stuck jobs and force-cancel them.
   lastProgressTime: number;
+  // Item ids the settler must NOT auto-deposit while this job is in
+  // their claim. The deposit-injection gate ORs this with each item's
+  // defaultSticky flag. HAUL_SEED sets [seedId] so a freshly-fetched
+  // seed isn't dumped before reaching the tilled tile; a Phase 8 haul
+  // job carrying flour from mill to bakery would set [FLOUR] for the
+  // same reason. Optional — most jobs don't carry anything.
+  holdItems?: ReadonlyArray<ItemId>;
 }
 
 export interface ClaimFilter {
