@@ -129,6 +129,11 @@ export class VillagerJobController {
   // current task. Reset to false when the controller pops the task so
   // each fresh task gets a chance to dodge transient blockers.
   private hasReplanned = false;
+  // Set by failTask (which runs from async path callbacks without a
+  // ctx). Consumed at the next tickIdleClaim entry to bump
+  // nextClaimAttemptTime — without this, a settler whose deposit
+  // target is unreachable spins the pathfinder once per tick.
+  private needsFailureBackoff = false;
 
   // Inspect helpers (debug UI, tests).
   // Returns the topmost JOB task's id — skips deposit subtasks. UI uses
@@ -253,10 +258,39 @@ export class VillagerJobController {
     if (this.nextClaimAttemptTime === STAGGER_UNSET) {
       this.nextClaimAttemptTime = ctx.time + idStagger(v.id, FIRST_CLAIM_STAGGER_SEC);
     }
+    // Drain a pending failure-backoff (deposit injection failed, job
+    // path failed, etc.) before honoring the stagger gate. Same jitter
+    // as scheduleRetry so neighbour settlers don't sync on a cadence.
+    if (this.needsFailureBackoff) {
+      this.needsFailureBackoff = false;
+      this.nextClaimAttemptTime = ctx.time + jitterBackoff(v.id, ctx.time);
+    }
     if (ctx.time < this.nextClaimAttemptTime) return false;
 
     const fromX = v.worldTileX();
     const fromY = v.worldTileY();
+
+    // Overweight gate: if the settler is hauling more than they should,
+    // they go and dump *before* claiming new work. Skips if the only
+    // things in the bag are sticky (seeds today; Job.holdItems in the
+    // next commit will generalise this). The injection is one task at
+    // a time — after deposit pops, the next idle tick will re-evaluate.
+    if (v.isOverweight() && hasDumpableItems(v) && services.crates && services.tileWorld) {
+      const target = pickDepositTarget(v, services, fromX, fromY);
+      if (target) {
+        this.pushTask({
+          kind: "deposit",
+          standingTile: target.standing,
+          cratePos: target.crate,
+        });
+        this.startActiveTask(v, ctx, services);
+        return true;
+      }
+      // No crate accepts our cargo — fall through to normal claim and
+      // hope the next job (likely HARVEST → crate) opens room. If the
+      // crate situation is genuinely permanent the player will see the
+      // settler keep failing to deposit and intervene.
+    }
 
     // Preference list: filter out kinds we can't fulfil right now. WATER
     // requires reserve > 0; PLANT_SEED requires a seed in inventory. The
@@ -468,12 +502,16 @@ export class VillagerJobController {
   }
 
   // Drop the active task. Cancels its job claim if it's a job task.
+  // Sets needsFailureBackoff so the next tickIdleClaim throttles the
+  // re-attempt — failures can fire from async callbacks, so we can't
+  // call scheduleRetry directly (no ctx).
   private failTask(services: EntityServices, reason: string): void {
     const task = this.activeTask();
     if (task && task.kind === "job" && services.jobs) {
       services.jobs.cancel(task.jobId, reason);
     }
     this.popTask();
+    this.needsFailureBackoff = true;
   }
 
   private tickWalking(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
@@ -955,6 +993,46 @@ function sourceStillValid(job: Job, services: EntityServices): boolean {
 function carriedSeedId(v: Villager): ItemId | null {
   for (const [item] of v.carriedItems) {
     if (isSeedItem(item)) return item;
+  }
+  return null;
+}
+
+// True if the settler is carrying at least one item that would be
+// dumped by an auto-deposit. Seeds are sticky (they're tiny and
+// always useful for the next PLANT_SEED). Job.holdItems (next commit)
+// will widen this exemption to per-job sticky lists.
+function hasDumpableItems(v: Villager): boolean {
+  for (const [item, count] of v.carriedItems) {
+    if (count <= 0) continue;
+    if (!isSeedItem(item)) return true;
+  }
+  return false;
+}
+
+// Find the closest crate that will accept at least one of the
+// settler's dumpable items. Returns the crate tile + its standing
+// tile, or null if no candidate fits. Uses the same nearest-container
+// logic as HARVEST routing so behavior is consistent across job kinds.
+function pickDepositTarget(
+  v: Villager,
+  services: EntityServices,
+  fromX: number,
+  fromY: number,
+): { crate: { x: number; y: number }; standing: { x: number; y: number } } | null {
+  const crates = services.crates;
+  const tw = services.tileWorld;
+  if (!crates || !tw) return null;
+  // Try each dumpable item in turn (Map insertion order). The first
+  // one that finds a willing crate wins — we don't need to deposit
+  // *all* items in one trip, the next idle tick will inject another
+  // deposit if the settler is still overweight.
+  for (const [item, count] of v.carriedItems) {
+    if (count <= 0) continue;
+    if (isSeedItem(item)) continue;
+    const hit = crates.nearestContainerForDeposit(tw, fromX, fromY, item);
+    if (hit) {
+      return { crate: hit.container, standing: hit.standing };
+    }
   }
   return null;
 }
