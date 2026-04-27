@@ -57,11 +57,34 @@ export const UNLOCK_DEFS: ReadonlyArray<UnlockDef> = [
   { id: "seed.corn", kind: "seed", targetId: 616, requiredLevel: 7, displayName: "Corn seeds" },
 ];
 
+// Debug override: when true, every unlock check returns true regardless
+// of player level. Set via setDebugUnlockAll() from the debug panel.
+// Module-local so the override is process-scoped (not per-call), and
+// not persisted in saves — toggling resets on reload, which is the
+// behavior we want for a developer flag. Production builds tree-shake
+// the debug panel that flips it, so the flag stays false in releases.
+let debugUnlockAll = false;
+
+export function setDebugUnlockAll(value: boolean): void {
+  debugUnlockAll = value;
+}
+
+export function isDebugUnlockAll(): boolean {
+  return debugUnlockAll;
+}
+
 // Returns the set of unlock ids the player should currently have, given a
 // level. This is computed from level rather than persisted as a list because
 // it's small and avoids one more piece of state to keep in sync.
 export function unlocksForLevel(level: number): Set<string> {
   const out = new Set<string>();
+  if (debugUnlockAll) {
+    // Debug override grants every unlock id regardless of level so any
+    // UI that consumes the set (level-up notifications, shop filters)
+    // stays consistent with the gate functions below.
+    for (const def of UNLOCK_DEFS) out.add(def.id);
+    return out;
+  }
   for (const def of UNLOCK_DEFS) {
     if (level >= def.requiredLevel) out.add(def.id);
   }
@@ -79,6 +102,7 @@ export function newUnlocksAtLevel(level: number): UnlockDef[] {
 }
 
 export function isBuildingUnlocked(level: number, buildingId: number): boolean {
+  if (debugUnlockAll) return hasUnlockTarget(buildingId, "building");
   for (const def of UNLOCK_DEFS) {
     if (def.kind !== "building") continue;
     if (def.targetId !== buildingId) continue;
@@ -88,10 +112,22 @@ export function isBuildingUnlocked(level: number, buildingId: number): boolean {
 }
 
 export function isSeedUnlocked(level: number, seedId: number): boolean {
+  if (debugUnlockAll) return hasUnlockTarget(seedId, "seed");
   for (const def of UNLOCK_DEFS) {
     if (def.kind !== "seed") continue;
     if (def.targetId !== seedId) continue;
     return level >= def.requiredLevel;
+  }
+  return false;
+}
+
+// Debug-override helper: returns true iff the registry actually defines
+// an unlock for this (kind, id) pair. The override grants ALL real
+// unlocks, but unknown ids still return false — matches the current
+// non-debug semantics (which also return false for unknown ids).
+function hasUnlockTarget(targetId: number, kind: UnlockKind): boolean {
+  for (const def of UNLOCK_DEFS) {
+    if (def.kind === kind && def.targetId === targetId) return true;
   }
   return false;
 }
