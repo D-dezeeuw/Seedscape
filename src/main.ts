@@ -23,6 +23,7 @@ import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { createBuildingWindow } from "./ui/building_window";
 import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
@@ -277,6 +278,31 @@ async function bootstrap(): Promise<void> {
     toast: (msg) => toaster.show(msg),
   });
 
+  // Phase 8: building window for Mill / Bakery — manual deposit input,
+  // withdraw output, see cycle/queue status. Containers (crate/dispenser)
+  // route through containerWindow above; both callbacks fire on a
+  // pan-mode click and self-check the tile type.
+  const buildingWindow = createBuildingWindow({
+    parent: document.body,
+    inventory,
+    buffers: buildingBuffers,
+    readTile: (x, y) => {
+      const cx = Math.floor(x / CHUNK_SIZE);
+      const cy = Math.floor(y / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return null;
+      const lx = x - cx * CHUNK_SIZE;
+      const ly = y - cy * CHUNK_SIZE;
+      const i = tileIndex(lx, ly);
+      return {
+        tileId: rec.data.tileId[i] ?? 0,
+        state: rec.data.state[i] ?? 0,
+        metadata: rec.data.metadata[i] ?? 0,
+      };
+    },
+    toast: (msg) => toaster.show(msg),
+  });
+
   const detachInteraction = attachTileInteraction({
     canvas,
     camera,
@@ -288,6 +314,7 @@ async function bootstrap(): Promise<void> {
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
     onContainerClick: (x, y) => containerWindow.showFor(x, y),
+    onBuildingClick: (x, y) => buildingWindow.showFor(x, y),
     isPossessing: () => possession.isPossessing(),
   });
 

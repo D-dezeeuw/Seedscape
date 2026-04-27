@@ -154,6 +154,10 @@ export interface TileInteractionDeps {
   // a crate still opens the person window. Possessing blocks this too,
   // matching the rule that god-mode tools don't fire when possessed.
   onContainerClick?: (worldTileX: number, worldTileY: number) => void;
+  // Pan-mode click on an active building tile (Mill, Bakery in Phase 8).
+  // Same gating as onContainerClick; the handler self-checks the tile
+  // type so it's safe to fire alongside onContainerClick.
+  onBuildingClick?: (worldTileX: number, worldTileY: number) => void;
 }
 
 export function attachTileInteraction(deps: TileInteractionDeps): () => void {
@@ -206,11 +210,16 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
           return;
         }
       }
-      // No entity hit: pan-mode (only) opens the container window when
-      // the click lands on a container tile. Possessing skips this — the
-      // possessed avatar uses the action key for tile interactions.
-      if (tool.current === "none" && !deps.isPossessing?.() && deps.onContainerClick) {
-        deps.onContainerClick(pick.worldTileX, pick.worldTileY);
+      // No entity hit: pan-mode (only) opens the container or building
+      // window when the click lands on a matching tile. Possessing skips
+      // this — the possessed avatar uses the action key for tile actions.
+      if (tool.current === "none" && !deps.isPossessing?.()) {
+        // Both callbacks self-check the tile type and bail when it
+        // doesn't match (containers are passive defs, buildings are
+        // active defs), so calling them in sequence is safe — only the
+        // matching one will actually open a window.
+        deps.onContainerClick?.(pick.worldTileX, pick.worldTileY);
+        deps.onBuildingClick?.(pick.worldTileX, pick.worldTileY);
       }
       return;
     }
