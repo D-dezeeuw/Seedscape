@@ -4,6 +4,8 @@
 
 The economy is a simulation, not a fixed reward schedule. Prices respond to supply and demand. Players can exploit or stabilize markets.
 
+> **Phase status (2026-04):** Phase 4 ships **fixed `basePrice` per item** only. Every dynamic-pricing block below — `demandMultiplier`, supply/demand pressure, decay rates, inflation guards, market depth — is the **Phase 4.5** target and is not yet wired. NPC orders pay `basePrice × quantity` flat. See [19_roadmap.md](19_roadmap.md) and `memory/project_phase_deferred.md` for the deferral rationale.
+
 ---
 
 ## Currency
@@ -48,6 +50,8 @@ NPCOrder {
 ---
 
 ## Pricing Model
+
+> **⚠️ Phase 4.5 — not yet implemented.** Phase 4 uses `basePrice` directly. This section is the target model.
 
 Price is a function of global supply (recent sales volume) and fixed base price.
 
