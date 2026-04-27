@@ -2,6 +2,8 @@
 
 Numbered reference. Pull targeted docs per task — do not load all at once.
 
+> **Where to look for what shipped:** Phase 6 (possession) is described in [21_vision_and_story.md](21_vision_and_story.md) — there's no standalone systems doc, the implementation is small enough to read directly in `src/state/possession_controller.ts` + `src/input/`. Phase 7 (pathfinding + autonomous jobs) and Phase 7.5 (weighted carry + task stack) live in [22_pathfinding.md](22_pathfinding.md). Carry-cap fields and `Job.holdItems` are in [05_data_model.md](05_data_model.md).
+
 ## Orientation
 
 - [00_overview.md](00_overview.md) — Technical vision, pillars, world structure
@@ -39,7 +41,7 @@ Numbered reference. Pull targeted docs per task — do not load all at once.
 - [13_chunk_lifecycle.md](13_chunk_lifecycle.md) — Chunk state machine
 - [14_worker_architecture.md](14_worker_architecture.md) — Worker pool + messages
 - [15_rendering_shaders.md](15_rendering_shaders.md) — GLSL contract
-- [22_pathfinding.md](22_pathfinding.md) — Pathfinding engine + autonomous job system
+- [22_pathfinding.md](22_pathfinding.md) — Pathfinding engine + autonomous job system + task stack (Phase 7.5)
 
 ## Future
 

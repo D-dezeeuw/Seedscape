@@ -14,18 +14,30 @@ Till → Plant → Water → [Fertilize] → Grow → Harvest → Process → Se
 
 ---
 
+## Phase Status
+
+The farming loop shipped in Phase 3 with deliberate cuts. Items still on the future-work list:
+
+- **Wilt timer** — the per-tile dry-tick counter that drives `state → 255`. The crop metadata bit layout reserves bits 5–7 for *seed variant*, leaving no room for a counter; reuse those bits or repurpose them when seed variants ship. Until then, water level can hit 0 and crops simply pause growth — they don't die.
+- **Seed variants** (metadata bits 5–7) — reserved, not implemented. Variant logic is a Phase 3.5+ task.
+- **Animals + their fertilizer outputs** — deferred to Phase 3.5. The Bakery's egg ingredient is currently substituted with flour-only because of this.
+- **Irrigation buildings** (Well, Sprinkler) — deferred to Phase 3.5. The doc describes the target design.
+- **Sunfen Delta auto-water** — deferred with the Sunfen biome itself (Phase 5).
+
+---
+
 ## Tile States
 
 A farm tile transitions through:
 
-| tileId group | state (Uint8) | Description          |
-|--------------|---------------|----------------------|
-| Ground       | 0             | Untilled soil        |
-| Farmland     | 0             | Tilled, empty        |
-| Crop         | 0             | Seeded               |
-| Crop         | 1–6           | Growth stages        |
-| Crop         | 7             | Fully grown (ready)  |
-| Crop         | 255           | Wilted (dead)        |
+| tileId group | state (Uint8) | Description          | Phase |
+|--------------|---------------|----------------------|-------|
+| Ground       | 0             | Untilled soil        | live  |
+| Farmland     | 0             | Tilled, empty        | live  |
+| Crop         | 0             | Seeded               | live  |
+| Crop         | 1–6           | Growth stages        | live  |
+| Crop         | 7             | Fully grown (ready)  | live  |
+| Crop         | 255           | Wilted (dead)        | reserved — wilt timer is **deferred** (see Wilt Condition) |
 
 ---
 
@@ -97,7 +109,10 @@ Fertilizer level stored in metadata bits 0–2 (range 0–7).
 
 ## Wilt Condition
 
+> **⚠️ Deferred (post-Phase 3).** Specified here as the target rule. Today crops at water=0 simply pause growth (`growthInterval` gate). The dry-tick counter that triggers wilt isn't implemented because metadata bits 5–7 are reserved for seed variants — there's no counter slot until that decision is revisited.
+
 If water level = 0 for more than `wiltThreshold` ticks:
+
 - state → 255 (wilted)
 - Tile becomes farmland again (state = 0, metadata cleared)
 - Yields nothing on harvest
@@ -161,6 +176,8 @@ Buildings simulate inside the chunk tick system.
 
 ## Animal Integration
 
+> **⚠️ Deferred to Phase 3.5.** No animal entity classes ship in Phase 3. Tile range 400–499 is reserved for them.
+
 Animals produce fertilizer as output:
 
 - Chickens → basic fertilizer
@@ -168,3 +185,15 @@ Animals produce fertilizer as output:
 - Pigs → premium manure
 
 Applied to adjacent farmland tiles automatically or via player action.
+
+---
+
+## Settler Farming Autonomy (Phase 7+)
+
+Phase 7 added autonomous settlers that run the farming loop themselves: water, plant, harvest. Phase 7.5 added weighted carry on top so harvests now require multiple round-trips to crates instead of one big haul.
+
+- Watering: settlers refill from a water source (HAUL_WATER) and drain into thirsty crops (WATER_CROP).
+- Planting: empty tilled tiles emit PLANT_SEED jobs; settlers fetch from a Seed Dispenser via HAUL_SEED.
+- Harvesting: ripe tiles emit HARVEST_CROP; the settler delivers yield to the nearest crate that accepts it.
+
+Carry weight (Phase 7.5) means a 30-wheat field becomes ~3 round-trips, not one. Crates are now *infrastructure* — a farm without enough storage will see settlers loop indefinitely. See [22_pathfinding.md](22_pathfinding.md) for the engine and [05_data_model.md](05_data_model.md) for the inventory cap fields.

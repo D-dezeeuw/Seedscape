@@ -2,7 +2,7 @@
 
 ## Structure
 
-5 phases from rendering prototype to live expansion. Each phase builds on the previous and ends with a playable milestone.
+7+ phases from rendering prototype to live expansion. Each phase builds on the previous and ends with a playable milestone. Phases 6 and 7 were inserted after the original 1–5 outline once the player-facing avatar (possession) and AI-driven settlers became scope; they sit logically before the broader Phase 5 expansion work resumes.
 
 ---
 
@@ -102,7 +102,7 @@
 
 **Goal:** World breadth, biome diversity, multiplayer foundation.
 
-**Duration:** Ongoing
+**Duration:** Ongoing — partially landed (cleanup + small features); biome breadth and multiplayer still pending.
 
 ### Deliverables
 
@@ -124,42 +124,97 @@
 
 ---
 
+## Phase 6 — Possession & Avatar Control
+
+**Goal:** Make the world dual-controllable. The player can possess any settler and pilot them directly with 4-cardinal movement, while every non-possessed settler keeps running its autonomy. Establishes the "god + avatar" framing described in [21_vision_and_story.md](21_vision_and_story.md).
+
+**Duration:** ~2 weeks (shipped)
+
+### Deliverables
+
+- `PossessionController` — single-occupant state container
+- Per-class `availableActions` on `LivingEntity` (subclasses pick which tools are usable while possessed)
+- Camera follow mode with dead-zone + drag-pause
+- `InputRouter` for 4-cardinal movement keys
+- Faced-tile reticle + canvas-click suppression while possessed
+- `Entity.facedTile` helper
+- Action key (E) fires the active tool against the faced tile
+- Avatar movement + AI pause for the possessed settler
+- ESC priority routing — windows close first, possession exits last
+- Save/load round-trip of possession state
+- Possessed-ring visual + FAB (floating action button)
+
+### Exit Criteria
+
+> Click a settler → press P (or the FAB) → the camera locks on, WASD moves them, E uses the equipped tool on the faced tile. ESC unwinds windows then drops possession. Save/reload while possessed restores both the avatar and the camera mode. Other settlers keep working autonomously throughout.
+
+---
+
 ## Phase 7 — Pathfinding & Autonomous Jobs
 
-**Goal:** Settlers walk on real paths and do useful work — water crops, harvest crops — autonomously. Pathfinding becomes a reusable engine for any future AI movement.
+**Goal:** Settlers walk on real paths and do useful work — water crops, plant seeds, harvest crops — autonomously. Pathfinding becomes a reusable engine for any future AI movement.
 
-**Duration:** ~1.5 weeks
+**Duration:** ~2 weeks (shipped)
 
 ### Deliverables
 
 - A*-on-grid pathfinder in a dedicated worker (single worker, not a pool)
 - Walkability mirroring + chunk delta protocol, gridVersion-keyed cache
 - Pathfinding client with promise-based requests
-- Storage crate tile + sparse contents store
+- Storage crate + seed dispenser container tiles, sparse contents store
 - Villager water reserve + item inventory
 - Job board with single-claim mutex
-- Job emitters: HaulWater, WaterCrop, Harvest
-- Job state machine on Villager (idle → … → complete)
+- Job emitters: HaulWater, WaterCrop, Harvest, PlantSeed, HaulSeed
+- Job state machine on Villager (idle → claim → walk → act → complete)
+- Hash-of-id stagger to spread spawn-burst claim attempts
+- Time-decayed soft-collision relaxation + replan-once-before-cancel for stuck settlers
+- Sim keep-set so off-screen settlers continue ticking without their chunks getting evicted
+- Dutch name generator + per-settler memory ring buffer for player-visible action history
 - Debug viz: selected settler's waypoints + current job in Person window
 
 ### Exit Criteria
 
-> A spawned settler walks to a water tile, fills up, walks to a thirsty crop, waters it, then walks to a ripe crop, harvests it, and deposits in the nearest crate — autonomously. Building placement mid-route triggers replan. 50 settlers don't deadlock. Pathfinding stays off the main thread.
+> A spawned settler walks to a water tile, fills up, walks to a thirsty crop, waters it, then walks to a ripe crop, harvests it, and deposits in the nearest crate — autonomously. Empty tilled tiles get planted from a stocked seed dispenser. Building placement mid-route triggers replan. 150 settlers maintain ≥60fps with active job mix. Pathfinding stays off the main thread.
 
 See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
 
 ---
 
+## Phase 7.5 — Weighted Carry & Task Injection
+
+**Goal:** Make settler inventories physical (weight, not count) and give the controller a generic mechanism for "do X before Y" sub-tasks. The first consumer is auto-deposit when overweight; future consumers are mid-job interrupts (eat, sleep, take shelter) and Phase 8 production hauling.
+
+**Duration:** ~3 days (shipped)
+
+### Deliverables
+
+- `ItemDef.weight` (deci-units, integer math) + `ItemDef.defaultSticky` flag
+- Carry caps moved to `LivingEntity` instance fields (`maxCarryWeight`, `maxStackSize=99`) so each entity class tunes its own budget
+- Weight-based `pickup()` clamping (per-stack ceiling AND remaining weight)
+- Controller refactored around a `taskStack: Task[]` (LIFO injection, single active task)
+- `deposit` task auto-injected when a settler is ≥70% capacity at idle
+- `Job.holdItems` — per-job sticky list, OR'd with `defaultSticky` to form the deposit-gate exemption set
+- Failure backoff to throttle pathfinder spam when a deposit target is unreachable
+- Person window: weight bar, task hint ("walking · depositing"), item names
+
+### Exit Criteria
+
+> A settler carrying 8 wheat (80% of cap) auto-injects a deposit task at the next idle, walks to the nearest accepting crate, dumps, and resumes work — without manual intervention. Seeds and any item declared in an active job's `holdItems` survive the deposit. The mechanism is data-driven (no item-specific code in the controller).
+
+---
+
 ## Milestone Summary
 
-| Phase | Duration  | Milestone                              |
-|-------|-----------|----------------------------------------|
-| 1     | ~1 week   | 60fps instanced tile renderer          |
-| 2     | ~2 weeks  | Infinite streaming procedural world    |
-| 3     | ~2 weeks  | Playable farm loop + save system       |
-| 4     | ~3 weeks  | Full economy + production chains       |
-| 5     | Ongoing   | Biome expansion + multiplayer          |
-| 7     | ~1.5 wks  | Autonomous settlers + pathfinding      |
+| Phase | Duration   | Milestone                              |
+|-------|------------|----------------------------------------|
+| 1     | ~1 week    | 60fps instanced tile renderer          |
+| 2     | ~2 weeks   | Infinite streaming procedural world    |
+| 3     | ~2 weeks   | Playable farm loop + save system       |
+| 4     | ~3 weeks   | Full economy + production chains       |
+| 5     | Ongoing    | Biome expansion + multiplayer          |
+| 6     | ~2 weeks   | Possession + avatar control            |
+| 7     | ~2 weeks   | Autonomous settlers + pathfinding      |
+| 7.5   | ~3 days    | Weighted carry + task injection        |
 
 ---
 

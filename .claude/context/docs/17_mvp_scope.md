@@ -65,19 +65,23 @@
 
 ## Explicitly Excluded from MVP
 
-| Feature                   | Reason                                  |
-|---------------------------|-----------------------------------------|
-| Dynamic economy / pricing | Added in Phase 4                        |
-| Stoneveil / Sunfen / Voidsoil biomes | Phase 3+                   |
-| Animals                   | Phase 3                                 |
-| Multiplayer               | Phase 5+                                |
-| Automation / conveyors    | Phase 4                                 |
-| Lighting system           | Phase 4                                 |
-| Particle effects          | Phase 4                                 |
-| Achievements              | Phase 3                                 |
-| Building upgrades         | Phase 3                                 |
-| Sprinkler / irrigation    | Phase 3                                 |
-| Advanced production chains| Phase 4                                 |
+The "Phase" column reflects where each item is now scheduled — the original numbering shifted as work progressed. See `memory/project_phase_deferred.md` for the per-phase deferred list.
+
+| Feature                              | Phase            |
+|--------------------------------------|------------------|
+| Dynamic economy / pricing            | Phase 4.5 (deferred from 4) |
+| Stoneveil / Sunfen / Voidsoil biomes | Phase 5          |
+| Animals (chicken, cow)               | Phase 3.5 (deferred from 3) |
+| Multiplayer                          | Phase 5+         |
+| Automation / conveyors               | Phase 4+ (no fixed slot) |
+| Lighting system                      | Polish — no fixed slot |
+| Particle effects                     | Polish — no fixed slot |
+| Achievements                         | Not yet scheduled — never shipped, originally Phase 3 |
+| Building upgrade tiers (1–4)         | Phase 4.5+       |
+| Well + Sprinkler                     | Phase 3.5 (deferred from 3) |
+| Advanced production chains           | Phase 4.5+       |
+| Wilt timer                           | Deferred — see [09_farming_system.md](09_farming_system.md) |
+| Seed variants (metadata bits 5–7)    | Reserved, no impl yet |
 
 ---
 
@@ -112,6 +116,18 @@
 - [ ] Level 1–10 unlock tree
 - [ ] Performance pass (target: 60fps, 100K tiles)
 - [ ] Bug fix + playtest
+
+---
+
+## Beyond MVP — Already Shipped
+
+Work that landed after the original MVP was reached, in the order it shipped:
+
+- **Phase 6** — possession + avatar control (player can pilot any settler)
+- **Phase 7** — pathfinding worker + autonomous settler jobs (water / plant / harvest, named identities, action memory)
+- **Phase 7.5** — weighted carry + task injection (overweight settlers auto-deposit; foundation for Phase 8 hauling and Phase 18 needs)
+
+These are scope **additions** to MVP, not regressions of it — the playable loop in the section below still works on a fresh save.
 
 ---
 

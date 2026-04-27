@@ -4,6 +4,8 @@
 
 Production buildings convert raw goods into processed goods via deterministic queue-based simulation.
 
+> **Phase status (2026-04):** Phase 4 ships **Mill + Bakery only**. The remaining buildings in the catalogue below (Juicer, Smelter, Sawmill, Press, Dairy, Forge, Refinery, Lab, Kitchen) are defined in `data/buildings.json` but gated behind unlock levels that don't exist yet, or behind input chains that haven't shipped (Smelter needs ore mining; Dairy needs animals from Phase 3.5; etc.). Tier 0 only — upgrade tiers 1–4 are the **Phase 4.5+** target.
+
 ---
 
 ## Core Chain
@@ -89,31 +91,33 @@ Upgrade cost: coins + materials (defined per building type).
 
 ## Building Catalogue
 
+> Recipes below describe the **target design**. The "Live in Phase 4?" column reflects what actually ships. Phase 4.5+ unlocks the rest, optionally adjusted (e.g. the Bakery recipe currently simplifies to flour-only because animals — and therefore eggs — are deferred to Phase 3.5).
+
 ### Tier 1 — Starter
 
-| Building   | Input         | Output      | Cycle   |
-|------------|---------------|-------------|---------|
-| Mill       | 3× Wheat      | 2× Flour    | 30s     |
-| Juicer     | 5× Carrot     | 2× Juice    | 20s     |
-| Smelter    | 2× Iron Ore   | 1× Ingot    | 60s     |
-| Sawmill    | 3× Wood       | 2× Planks   | 25s     |
+| Building   | Input         | Output      | Cycle | Live in Phase 4? |
+|------------|---------------|-------------|-------|------------------|
+| Mill       | 3× Wheat      | 2× Flour    | 30s   | ✅ yes           |
+| Juicer     | 5× Carrot     | 2× Juice    | 20s   | ❌ deferred (4.5)|
+| Smelter    | 2× Iron Ore   | 1× Ingot    | 60s   | ❌ needs ore mining |
+| Sawmill    | 3× Wood       | 2× Planks   | 25s   | ❌ needs woodcutting |
 
 ### Tier 2 — Mid Game
 
-| Building   | Input              | Output       | Cycle |
-|------------|--------------------|--------------|-------|
-| Bakery     | 2× Flour, 1× Egg   | 3× Bread     | 45s   |
-| Press      | 5× Corn            | 2× Corn Oil  | 40s   |
-| Dairy      | 3× Milk            | 2× Cheese    | 60s   |
-| Forge      | 2× Ingot, 1× Coal  | 1× Tool      | 90s   |
+| Building   | Input              | Output       | Cycle | Live in Phase 4? |
+|------------|--------------------|--------------|-------|------------------|
+| Bakery     | 2× Flour, 1× Egg   | 3× Bread     | 45s   | ⚠️ flour-only (egg deferred to 3.5) |
+| Press      | 5× Corn            | 2× Corn Oil  | 40s   | ❌ deferred (4.5)|
+| Dairy      | 3× Milk            | 2× Cheese    | 60s   | ❌ needs animals (3.5) |
+| Forge      | 2× Ingot, 1× Coal  | 1× Tool      | 90s   | ❌ needs Smelter |
 
 ### Tier 3 — Advanced
 
-| Building   | Input                    | Output         | Cycle |
-|------------|--------------------------|----------------|-------|
-| Refinery   | 4× Corn Oil              | 3× Fuel        | 120s  |
-| Lab        | 2× Void Crystal + 1× Ore | 1× Component   | 180s  |
-| Kitchen    | Multiple inputs          | Composite dish | 90s   |
+| Building   | Input                    | Output         | Cycle | Live in Phase 4? |
+|------------|--------------------------|----------------|-------|------------------|
+| Refinery   | 4× Corn Oil              | 3× Fuel        | 120s  | ❌ Phase 5+      |
+| Lab        | 2× Void Crystal + 1× Ore | 1× Component   | 180s  | ❌ Phase 5 (Voidsoil biome) |
+| Kitchen    | Multiple inputs          | Composite dish | 90s   | ❌ needs people sim (Phase 18) |
 
 ---
 

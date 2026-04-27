@@ -125,6 +125,17 @@ IDLE → WORK → IDLE
 
 States are pure functions of (needs, tick, schedule). Same input → same state.
 
+### Implementation Note — Task Stack (Phase 7.5+)
+
+The Phase 7.5 settler controller already has a generic LIFO task stack on top of the path-level state machine — see [22_pathfinding.md](22_pathfinding.md#task-stack-phase-75). When this people-system layer ships, "satisfaction" states above are not parallel branches in the controller; they're **injected sub-tasks** pushed on top of the active job task:
+
+```ts
+// hunger crosses CRITICAL_THRESHOLD → push, don't replace
+controller.pushTask({ kind: "eat", target: nearestKitchen });
+```
+
+Completion pops the task and the suspended job resumes. This keeps the people-system implementation small (one push per critical need) and preserves the single-active-task invariant the rest of the controller relies on.
+
 ---
 
 ## Memory System
@@ -190,7 +201,25 @@ A short-term event is promoted to long-term when:
 
 Long-term memories never fully disappear — they fade to background influence.
 
-### Memory Event Types (initial set)
+### Memory Event Types — current
+
+Phase 7 logs settler-action events; the mood-driven entries below are still future. Stable enum codes — saves reference these by number, so existing values are not renumbered.
+
+| Code | Type           | Phase shipped | Trigger                                                    |
+|------|----------------|---------------|------------------------------------------------------------|
+| 0    | EMPTY          | 7             | Ring-buffer sentinel (slot never filled)                   |
+| 1    | HARVESTED      | 7             | Settler harvested a crop tile                              |
+| 2    | PLANTED        | 7             | Settler planted a seed on a tilled tile                    |
+| 3    | WATERED        | 7             | Settler watered a crop                                     |
+| 4    | HAULED_WATER   | 7             | Settler refilled water reserve at a water source           |
+| 5    | HAULED_SEED    | 7             | Settler withdrew a seed from a container                   |
+| 6    | DEPOSITED      | 7             | Settler dropped carried items at a crate                   |
+
+Source of truth: `MEMORY_EVENT_TYPES` in `src/state/entities/living_entity.ts`. The Person window resolves codes to human-readable strings ("Stored Wheat at (8, 8)").
+
+### Memory Event Types — target / future
+
+The mood-affecting events below are planned for the full people system. Mood deltas are illustrative. New codes will append to the enum (start at 7+, never reuse).
 
 | Type            | Trigger                                          | Mood delta |
 |-----------------|--------------------------------------------------|------------|
@@ -304,11 +333,14 @@ People are persisted globally, not per chunk (they roam across chunks).
 
 ## Phase Plan
 
-People system is **not in MVP**. Layered in over Phase 3 → Phase 5:
+People system is **not in MVP**. Actual landing landed differently from the original Phase 3–5 sketch — autonomous behavior arrived in Phase 7 ahead of needs/mood:
 
-- **Phase 3**: One placeholder NPC (no needs, no memory)
-- **Phase 4**: Up to 4 people with needs + day cycle, no memory
-- **Phase 5**: Memory system (short + long), full mood, role assignments
-- **Post-Phase 5**: Relationships, dialog, narrative hooks
+- **Phase 3**: NPCs are static order-givers (no needs, no memory) — ✅ shipped
+- **Phase 6**: Possession layer — player can pilot any settler — ✅ shipped
+- **Phase 7**: Autonomous job-driven settlers, named identities, action memory ring buffer — ✅ shipped (no needs decay yet)
+- **Phase 7.5**: Task-stack architecture that needs/mood will hook into — ✅ shipped (foundation only)
+- **Future (TBD)**: Needs decay + day cycle + critical-threshold task injection
+- **Future**: Memory promotion (short → long), full mood formula, role assignments
+- **Future**: Relationships, dialog, narrative hooks
 
 See [19_roadmap.md](19_roadmap.md) for phase-level deliverables.
