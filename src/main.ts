@@ -23,6 +23,7 @@ import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { asPlayerInventoryLike, asSettlerInventoryLike } from "./state/inventory_like";
 import { createBuildingWindow } from "./ui/building_window";
 import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
@@ -282,9 +283,14 @@ async function bootstrap(): Promise<void> {
     },
   });
 
+  // The container window holds a swappable InventoryLike so the same
+  // panel works for both god-mode (player inventory) and possession
+  // (settler carry). We start in player mode; the action key flips the
+  // active side via setInventory before opening.
+  const playerInventoryView = asPlayerInventoryLike(inventory);
   const containerWindow = createContainerWindow({
     parent: document.body,
-    inventory,
+    inventory: playerInventoryView,
     crates,
     readTileId: (x, y) => {
       const cx = Math.floor(x / CHUNK_SIZE);
@@ -333,7 +339,11 @@ async function bootstrap(): Promise<void> {
     tileWorldSize: TILE_WORLD_SIZE,
     entityManager,
     onEntityClick: (entity) => personWindow.showFor(entity),
-    onContainerClick: (x, y) => containerWindow.showFor(x, y),
+    onContainerClick: (x, y) => {
+      // God-mode click → operate on the player's inventory.
+      containerWindow.setInventory(playerInventoryView);
+      containerWindow.showFor(x, y);
+    },
     onBuildingClick: (x, y) => buildingWindow.showFor(x, y),
     isPossessing: () => possession.isPossessing(),
   });
