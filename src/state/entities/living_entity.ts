@@ -8,6 +8,7 @@
 // facing. Subclasses (Villager etc.) compose this into their tick logic.
 
 import type { Tool } from "../../input/tool";
+import { getItemWeight, type ItemId } from "../items";
 import {
   Entity,
   type EntityPosition,
@@ -17,6 +18,19 @@ import {
   FACING_WEST,
   type Facing,
 } from "./entity";
+
+// Per-stack ceiling shared by every carrying entity. Picked at 99 so a
+// single ItemId never overflows a Uint8 slot when we eventually pack
+// inventories into typed arrays. Stacks above this are split or refused
+// at pickup time. Per-entity carry caps live on LivingEntity so each
+// subclass tunes its own weight budget — see Villager.
+export const MAX_STACK_SIZE = 99;
+
+// Sensible default for a carrying entity: no carrying. Subclasses opt
+// in by setting maxCarryWeight in their constructor. This keeps any
+// future LivingEntity subclass that hasn't thought about inventory
+// from accidentally hauling cargo.
+const DEFAULT_MAX_CARRY_WEIGHT = 0;
 
 // Action set a possessed entity can run via the action key. The Villager
 // default is the full toolset minus "none" (which is just pan / no-op). Other
@@ -115,6 +129,19 @@ export abstract class LivingEntity extends Entity {
   // Tools this entity can execute when possessed. Empty = read-only (e.g.
   // a non-possessable creature, or an early animal class).
   availableActions: ReadonlyArray<Tool>;
+  // Carry-cap fields. Per-instance so a child class (or even a single
+  // entity, e.g. an upgraded settler with a cart) can override its
+  // limits without inheriting a global. Stack size has a hard ceiling
+  // at MAX_STACK_SIZE since the eventual typed-array inventory can't
+  // store > 255 in a Uint8 and 99 keeps the math human-readable in
+  // tooltips. Weight is in deci-units (×10) — see ITEM_DEFS.weight.
+  maxCarryWeight: number;
+  maxStackSize: number;
+  // Items the entity is carrying. Lives on the base class because
+  // settlers, animals (saddle-bags later), and mounts will all share
+  // the same shape. Empty Map by default; subclasses that don't carry
+  // simply leave maxCarryWeight at 0 so pickup() refuses everything.
+  readonly carriedItems = new Map<ItemId, number>();
 
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
@@ -136,6 +163,74 @@ export abstract class LivingEntity extends Entity {
     this.softCollide = true;
     this.stuckSince = Number.NEGATIVE_INFINITY;
     this.availableActions = [];
+    this.maxCarryWeight = DEFAULT_MAX_CARRY_WEIGHT;
+    this.maxStackSize = MAX_STACK_SIZE;
+  }
+
+  // Sum of carried counts across all item types. Used by tests and
+  // legacy code paths; new code should prefer carriedWeight().
+  carriedTotal(): number {
+    let n = 0;
+    for (const c of this.carriedItems.values()) n += c;
+    return n;
+  }
+
+  // Sum of carried weight in deci-units. Hot path during the
+  // overweight check after every successful pickup, so no per-call
+  // allocation. Walking the Map is O(k) where k is the number of
+  // distinct item types currently held — typically <4.
+  carriedWeight(): number {
+    let w = 0;
+    for (const [item, count] of this.carriedItems) w += getItemWeight(item) * count;
+    return w;
+  }
+
+  // True iff the entity should drop everything at the next opportunity.
+  // Threshold is fractional in [0,1]; defaults to 0.7 so settlers
+  // deposit before they're literally full — keeps a planning cycle
+  // from being wasted on a too-full settler claiming a harvest it
+  // can't really take. Callers can pass 1.0 for a hard "completely
+  // full" check.
+  isOverweight(threshold = 0.7): boolean {
+    if (this.maxCarryWeight <= 0) return this.carriedItems.size > 0;
+    return this.carriedWeight() >= Math.floor(this.maxCarryWeight * threshold);
+  }
+
+  // Try to add `n` of `item`, clamped by remaining weight budget AND
+  // by the per-stack cap. Returns the count actually added — callers
+  // use this to know whether the world still owes them something
+  // (e.g. a partial harvest that should re-emit). Pickup is atomic
+  // per call: either the clamped quantity goes in or zero goes in.
+  pickup(item: ItemId, n: number): number {
+    if (n <= 0) return 0;
+    const w = getItemWeight(item);
+    // Items with zero weight (or unknown ids) can still respect the
+    // stack cap; the weight clamp is skipped to avoid div-by-zero.
+    let room = n;
+    if (w > 0) {
+      const weightRoom = Math.max(0, this.maxCarryWeight - this.carriedWeight());
+      room = Math.min(room, Math.floor(weightRoom / w));
+    }
+    const have = this.carriedItems.get(item) ?? 0;
+    const stackRoom = Math.max(0, this.maxStackSize - have);
+    const taken = Math.min(room, stackRoom);
+    if (taken <= 0) return 0;
+    this.carriedItems.set(item, have + taken);
+    return taken;
+  }
+
+  // Remove and return up to `n` of `item`. Returns the count actually
+  // given. Empty stacks are deleted so iteration over carriedItems
+  // never has to skip zeroed entries.
+  drop(item: ItemId, n: number): number {
+    if (n <= 0) return 0;
+    const have = this.carriedItems.get(item) ?? 0;
+    const taken = Math.min(have, n);
+    if (taken === 0) return 0;
+    const remaining = have - taken;
+    if (remaining === 0) this.carriedItems.delete(item);
+    else this.carriedItems.set(item, remaining);
+    return taken;
   }
 
   // 4-cardinal step driven by an input vector (typically from
