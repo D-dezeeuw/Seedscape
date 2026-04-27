@@ -15,6 +15,9 @@
 // constant-time scan over <300 jobs is well below the per-chunk tile loop.
 
 import { CHUNK_SIZE, type ChunkRecord, tileIndex } from "../world/chunk";
+import type { BuildingBufferStore } from "../world/farming/building_buffer";
+import { buildingInputCap } from "../world/farming/building_buffer_tick";
+import { buildingForTile } from "../world/farming/building_registry";
 import { isSeedItem } from "../world/farming/container_registry";
 import type { CrateStore } from "../world/farming/crate";
 import {
@@ -25,7 +28,9 @@ import {
 import { getWaterLevel } from "../world/farming/tile_actions";
 import { ITEM_IDS, type ItemId } from "./items";
 import {
+  JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
   JOB_KIND_PLANT_SEED,
   JOB_KIND_WATER_CROP,
   type JobBoard,
@@ -38,6 +43,12 @@ const TILE_FARMLAND_TILLED = 13;
 // every 4 ticks; threshold of 1 (drier than 1, i.e. 0) keeps the queue from
 // thrashing while crops are still growing fine.
 export const WATER_THIRSTY_THRESHOLD = 1;
+
+// Phase 8 — emit a FEED_BUILDING job when the input buffer is below this
+// fraction of its cap. Half-full keeps the buffer from thrashing on
+// fast cycles while still refilling proactively. Threshold of 0 means
+// "never emit"; >=1 means "always emit" — neither is what we want.
+export const FEED_BUILDING_THRESHOLD = 0.5;
 
 // Default scan period in sim ticks. 30 ≈ 30s; long enough that a single
 // scan + dedup pass amortizes well; short enough that a freshly ripe crop
@@ -70,6 +81,10 @@ export class JobEmitter {
   // there's no point queueing planting work the settlers can't fulfil.
   // Tests that don't care about planting can omit this.
   private readonly crates: CrateStore | undefined;
+  // Phase 8: optional building-buffer store. When provided, the emitter
+  // adds FEED_BUILDING / HAUL_OUTPUT jobs based on input/output state.
+  // Tests that don't exercise building hauling can omit it.
+  private readonly buildingBuffers: BuildingBufferStore | undefined;
   private readonly period: number;
   private lastScanTick = -Infinity;
 
@@ -77,11 +92,13 @@ export class JobEmitter {
     board: JobBoard;
     chunks: ChunkSource;
     crates?: CrateStore;
+    buildingBuffers?: BuildingBufferStore;
     periodTicks?: number;
   }) {
     this.board = opts.board;
     this.chunks = opts.chunks;
     this.crates = opts.crates;
+    this.buildingBuffers = opts.buildingBuffers;
     this.period = opts.periodTicks ?? DEFAULT_EMITTER_PERIOD_TICKS;
   }
 
@@ -151,6 +168,47 @@ export class JobEmitter {
               emitted++;
             }
             continue;
+          }
+
+          // Phase 8: building tiles emit FEED_BUILDING / HAUL_OUTPUT
+          // when the buffer state warrants it. Only runs when a
+          // BuildingBufferStore is wired (tests that don't care can
+          // omit it). The cropForTile fast-path already returned, so
+          // building check sits below crop logic but BEFORE the water
+          // gate — buildings aren't crops.
+          if (this.buildingBuffers) {
+            const def = buildingForTile(tileId);
+            if (def && !def.passive && def.cycleTime > 0) {
+              const cap = buildingInputCap(def.inputQuantity);
+              const have = this.buildingBuffers.totalInputAt(wx, wy);
+              if (have < cap * FEED_BUILDING_THRESHOLD) {
+                if (!this.board.hasJobAt(JOB_KIND_FEED_BUILDING, wx, wy)) {
+                  this.board.enqueue({
+                    kind: JOB_KIND_FEED_BUILDING,
+                    source: { x: wx, y: wy }, // resolved to crate.standing at claim
+                    target: { x: wx, y: wy }, // resolved to building.standing at claim
+                    priority: 2,
+                    payload: def.inputItem,
+                    holdItems: [def.inputItem],
+                  });
+                  emitted++;
+                }
+              }
+              if (this.buildingBuffers.hasAnyOutput(wx, wy)) {
+                if (!this.board.hasJobAt(JOB_KIND_HAUL_OUTPUT, wx, wy)) {
+                  this.board.enqueue({
+                    kind: JOB_KIND_HAUL_OUTPUT,
+                    source: { x: wx, y: wy }, // resolved to building.standing
+                    target: { x: wx, y: wy }, // resolved to crate.standing
+                    priority: 2,
+                    payload: def.outputItem,
+                    holdItems: [def.outputItem],
+                  });
+                  emitted++;
+                }
+              }
+              continue;
+            }
           }
 
           const water = getWaterLevel(data.metadata[i] ?? 0);

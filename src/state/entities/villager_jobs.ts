@@ -20,6 +20,12 @@
 // reach into other entities or globals. Tests construct a Villager + a
 // fake services object and call tick() in a loop.
 
+import type { BuildingBufferStore } from "../../world/farming/building_buffer";
+import {
+  buildingInputCap,
+  buildingOutputCap,
+} from "../../world/farming/building_buffer_tick";
+import { buildingForTile } from "../../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
 import {
@@ -28,10 +34,12 @@ import {
   cropForTile,
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
-import { isWaterSource } from "../../world/walkability";
+import { isEntityWalkable, isWaterSource } from "../../world/walkability";
 import { type ItemId, isItemDefaultSticky } from "../items";
 import {
+  JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
   JOB_KIND_HAUL_SEED,
   JOB_KIND_HAUL_WATER,
   JOB_KIND_PLANT_SEED,
@@ -1000,6 +1008,17 @@ function sourceStillValid(job: Job, services: EntityServices): boolean {
       // settler re-derives the actual container at act time.
       const t = tw.readTile(job.source.x, job.source.y);
       return t !== null;
+    }
+    case JOB_KIND_FEED_BUILDING:
+    case JOB_KIND_HAUL_OUTPUT: {
+      // Source/target are emitted as the building tile and resolved at
+      // claim time by the controller. Validity here = building tile
+      // still exists with a known def (defensive: dismantled buildings
+      // shouldn't be claimable for fresh feeds/hauls).
+      const t = tw.readTile(job.source.x, job.source.y);
+      if (!t) return false;
+      const def = buildingForTile(t.tileId);
+      return def !== null && !def.passive;
     }
   }
 }

@@ -169,7 +169,12 @@ async function bootstrap(): Promise<void> {
   // so the existing sim-worker code path runs unchanged.
   const buildingBuffers = new BuildingBufferStore();
   const jobBoard = new JobBoard();
-  const jobEmitter = new JobEmitter({ board: jobBoard, chunks: chunkManager, crates });
+  const jobEmitter = new JobEmitter({
+    board: jobBoard,
+    chunks: chunkManager,
+    crates,
+    buildingBuffers,
+  });
 
   // Game time: advances 1 second per sim tick. Stored separately from
   // `tick` so save/load can preserve it across sessions.

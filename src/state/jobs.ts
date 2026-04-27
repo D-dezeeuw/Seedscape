@@ -31,12 +31,25 @@ export const JOB_KIND_PLANT_SEED = 4;
 // spawns HAUL_SEED to a container that has seeds → withdraws → returns
 // to claim PLANT_SEED for real.
 export const JOB_KIND_HAUL_SEED = 5;
+// FEED_BUILDING (Phase 8): take input items from a crate and deliver
+// them to a non-passive building's input buffer. Payload is the
+// input ItemId; holdItems pins it so the cargo isn't auto-deposited
+// mid-trip. Source/target are emitted as the building's tile and
+// resolved to standing tiles at claim time, mirroring HARVEST_CROP's
+// claim-time target resolution.
+export const JOB_KIND_FEED_BUILDING = 6;
+// HAUL_OUTPUT (Phase 8): take produced items from a building's output
+// buffer and deliver to a crate. Payload is the output ItemId; same
+// resolution pattern as FEED_BUILDING.
+export const JOB_KIND_HAUL_OUTPUT = 7;
 export type JobKind =
   | typeof JOB_KIND_HAUL_WATER
   | typeof JOB_KIND_WATER_CROP
   | typeof JOB_KIND_HARVEST_CROP
   | typeof JOB_KIND_PLANT_SEED
-  | typeof JOB_KIND_HAUL_SEED;
+  | typeof JOB_KIND_HAUL_SEED
+  | typeof JOB_KIND_FEED_BUILDING
+  | typeof JOB_KIND_HAUL_OUTPUT;
 
 export interface Job {
   id: number;
