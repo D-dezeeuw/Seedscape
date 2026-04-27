@@ -21,10 +21,7 @@
 // fake services object and call tick() in a loop.
 
 import type { BuildingBufferStore } from "../../world/farming/building_buffer";
-import {
-  buildingInputCap,
-  buildingOutputCap,
-} from "../../world/farming/building_buffer_tick";
+import { buildingInputCap, buildingOutputCap } from "../../world/farming/building_buffer_tick";
 import { buildingForTile } from "../../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
@@ -443,11 +440,7 @@ export class VillagerJobController {
     if (job.kind === JOB_KIND_FEED_BUILDING) {
       const inputItem = job.payload as ItemId | 0;
       const buildingPos = { x: job.source.x, y: job.source.y };
-      if (
-        inputItem === 0 ||
-        !services.crates ||
-        !services.tileWorld
-      ) {
+      if (inputItem === 0 || !services.crates || !services.tileWorld) {
         board.release(job.id);
         this.scheduleRetry(v, ctx);
         return false;
@@ -478,11 +471,7 @@ export class VillagerJobController {
     if (job.kind === JOB_KIND_HAUL_OUTPUT) {
       const outputItem = job.payload as ItemId | 0;
       const buildingPos = { x: job.source.x, y: job.source.y };
-      if (
-        outputItem === 0 ||
-        !services.crates ||
-        !services.tileWorld
-      ) {
+      if (outputItem === 0 || !services.crates || !services.tileWorld) {
         board.release(job.id);
         this.scheduleRetry(v, ctx);
         return false;

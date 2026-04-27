@@ -7,12 +7,20 @@ import {
   tileIndex,
 } from "../world/chunk";
 import { chunkKey } from "../world/coords";
+import { BuildingBufferStore } from "../world/farming/building_buffer";
 import { CrateStore } from "../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED } from "../world/farming/crop_registry";
 import { setWaterLevel } from "../world/farming/tile_actions";
 import { ITEM_IDS } from "./items";
 import { DEFAULT_EMITTER_PERIOD_TICKS, JobEmitter, WATER_THIRSTY_THRESHOLD } from "./job_emitter";
-import { JOB_KIND_HARVEST_CROP, JOB_KIND_PLANT_SEED, JOB_KIND_WATER_CROP, JobBoard } from "./jobs";
+import {
+  JOB_KIND_FEED_BUILDING,
+  JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
+  JOB_KIND_PLANT_SEED,
+  JOB_KIND_WATER_CROP,
+  JobBoard,
+} from "./jobs";
 
 const WHEAT_BASE_ID = 100;
 const TILE_FARMLAND_TILLED = 13;
@@ -225,5 +233,63 @@ describe("JobEmitter", () => {
     emitter.scanAll();
     expect(emitter.scanAll()).toBe(0);
     expect(board.size()).toBe(1);
+  });
+
+  test("emits FEED_BUILDING when input buffer is below threshold", () => {
+    const [, record] = chunkAt(0, 0);
+    const MILL_TILE = 200;
+    record.data.tileId[tileIndex(5, 5)] = MILL_TILE;
+    const board = new JobBoard();
+    const buffers = new BuildingBufferStore();
+    // Buffer is empty → below threshold → emitter should fire FEED.
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      buildingBuffers: buffers,
+    });
+    expect(emitter.scanAll()).toBe(1);
+    const jobs = Array.from(board.all());
+    expect(jobs[0]?.kind).toBe(JOB_KIND_FEED_BUILDING);
+    expect(jobs[0]?.payload).toBe(ITEM_IDS.WHEAT);
+    expect(jobs[0]?.holdItems).toEqual([ITEM_IDS.WHEAT]);
+  });
+
+  test("does not emit FEED_BUILDING when input buffer is above threshold", () => {
+    const [, record] = chunkAt(0, 0);
+    const MILL_TILE = 200;
+    record.data.tileId[tileIndex(5, 5)] = MILL_TILE;
+    const board = new JobBoard();
+    const buffers = new BuildingBufferStore();
+    // Mill cycleInputQuantity = 3 → cap = 9. Filling 7 puts us above
+    // the 50% threshold; emitter should skip FEED.
+    buffers.addInput(5, 5, ITEM_IDS.WHEAT, 7, 9);
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      buildingBuffers: buffers,
+    });
+    // Note: emitter still scans, just doesn't emit.
+    expect(emitter.scanAll()).toBe(0);
+  });
+
+  test("emits HAUL_OUTPUT when output buffer has any items", () => {
+    const [, record] = chunkAt(0, 0);
+    const MILL_TILE = 200;
+    record.data.tileId[tileIndex(5, 5)] = MILL_TILE;
+    const board = new JobBoard();
+    const buffers = new BuildingBufferStore();
+    // Pre-fill input above threshold so FEED won't fire — that way the
+    // single emitted job is unambiguously HAUL_OUTPUT.
+    buffers.addInput(5, 5, ITEM_IDS.WHEAT, 9, 9);
+    buffers.addOutput(5, 5, ITEM_IDS.FLOUR, 2, 100);
+    const emitter = new JobEmitter({
+      board,
+      chunks: makeChunks([[chunkKey(0, 0), record]]),
+      buildingBuffers: buffers,
+    });
+    expect(emitter.scanAll()).toBe(1);
+    const jobs = Array.from(board.all());
+    expect(jobs[0]?.kind).toBe(JOB_KIND_HAUL_OUTPUT);
+    expect(jobs[0]?.payload).toBe(ITEM_IDS.FLOUR);
   });
 });

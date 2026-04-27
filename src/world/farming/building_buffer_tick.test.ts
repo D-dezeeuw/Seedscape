@@ -4,10 +4,7 @@ import { allocChunkData, type ChunkRecord, tileIndex } from "../chunk";
 import { chunkKey } from "../coords";
 import { BuildingBufferStore, INPUT_BUFFER_MULTIPLIER } from "./building_buffer";
 import { autoQueueFromBuffers } from "./building_buffer_tick";
-import {
-  buildingForTile,
-  getQueuedJobs,
-} from "./building_registry";
+import { buildingForTile, getQueuedJobs } from "./building_registry";
 
 const MILL_TILE = 200;
 
@@ -32,7 +29,13 @@ describe("autoQueueFromBuffers", () => {
     const buffers = new BuildingBufferStore();
     const def = buildingForTile(MILL_TILE);
     if (!def) throw new Error("mill def missing — registry regressed");
-    buffers.addInput(5, 5, ITEM_IDS.WHEAT, def.inputQuantity, def.inputQuantity * INPUT_BUFFER_MULTIPLIER);
+    buffers.addInput(
+      5,
+      5,
+      ITEM_IDS.WHEAT,
+      def.inputQuantity,
+      def.inputQuantity * INPUT_BUFFER_MULTIPLIER,
+    );
 
     const enqueued = autoQueueFromBuffers(chunks, buffers);
     expect(enqueued).toBe(1);

@@ -151,31 +151,12 @@ export class JobEmitter {
             continue;
           }
 
-          const crop = cropForTile(tileId);
-          if (!crop) continue;
-          const state = data.state[i] ?? 0;
-          if (state === CROP_STATE_WILTED) continue;
-
-          if (state >= CROP_STAGE_HARVESTABLE) {
-            if (!this.board.hasJobAt(JOB_KIND_HARVEST_CROP, wx, wy)) {
-              this.board.enqueue({
-                kind: JOB_KIND_HARVEST_CROP,
-                source: { x: wx, y: wy },
-                target: { x: wx, y: wy }, // resolved to crate at claim time
-                priority: 1,
-                payload: crop.produceItem,
-              });
-              emitted++;
-            }
-            continue;
-          }
-
           // Phase 8: building tiles emit FEED_BUILDING / HAUL_OUTPUT
           // when the buffer state warrants it. Only runs when a
           // BuildingBufferStore is wired (tests that don't care can
-          // omit it). The cropForTile fast-path already returned, so
-          // building check sits below crop logic but BEFORE the water
-          // gate — buildings aren't crops.
+          // omit it). Must sit BEFORE the crop check below because
+          // cropForTile returns null for building tiles, which would
+          // `continue` past the building branch entirely.
           if (this.buildingBuffers) {
             const def = buildingForTile(tileId);
             if (def && !def.passive && def.cycleTime > 0) {
@@ -209,6 +190,25 @@ export class JobEmitter {
               }
               continue;
             }
+          }
+
+          const crop = cropForTile(tileId);
+          if (!crop) continue;
+          const state = data.state[i] ?? 0;
+          if (state === CROP_STATE_WILTED) continue;
+
+          if (state >= CROP_STAGE_HARVESTABLE) {
+            if (!this.board.hasJobAt(JOB_KIND_HARVEST_CROP, wx, wy)) {
+              this.board.enqueue({
+                kind: JOB_KIND_HARVEST_CROP,
+                source: { x: wx, y: wy },
+                target: { x: wx, y: wy }, // resolved to crate at claim time
+                priority: 1,
+                payload: crop.produceItem,
+              });
+              emitted++;
+            }
+            continue;
           }
 
           const water = getWaterLevel(data.metadata[i] ?? 0);

@@ -13,14 +13,16 @@
 // cycleTime; skips buildings whose def is unknown (defensive against
 // future tile ids).
 
-import { CHUNK_FLAG_DIRTY_RENDER, CHUNK_FLAG_DIRTY_SIMULATION, CHUNK_SIZE, type ChunkRecord, tileIndex } from "../chunk";
 import {
-  buildingForTile,
-  getQueuedJobs,
-  setQueuedJobs,
-} from "./building_registry";
+  CHUNK_FLAG_DIRTY_RENDER,
+  CHUNK_FLAG_DIRTY_SIMULATION,
+  CHUNK_SIZE,
+  type ChunkRecord,
+  tileIndex,
+} from "../chunk";
 import type { BuildingBufferStore } from "./building_buffer";
 import { INPUT_BUFFER_MULTIPLIER, OUTPUT_BUFFER_MULTIPLIER } from "./building_buffer";
+import { buildingForTile, getQueuedJobs, setQueuedJobs } from "./building_registry";
 
 // Mirror of QUEUE_BITS_MASK so we can clamp without re-importing the
 // internal constant. Keep in sync if the metadata layout ever widens.
@@ -33,10 +35,7 @@ export interface ChunkSource {
 // Run one auto-queue pass. Returns the number of cycles enqueued —
 // useful for tests; production callers can ignore. Cheap when no
 // buffers have content (early-exits on totalInputAt === 0).
-export function autoQueueFromBuffers(
-  chunks: ChunkSource,
-  buffers: BuildingBufferStore,
-): number {
+export function autoQueueFromBuffers(chunks: ChunkSource, buffers: BuildingBufferStore): number {
   let enqueued = 0;
   for (const [key, record] of chunks.allChunkRecords()) {
     const [cxStr, cyStr] = key.split(",");
@@ -81,7 +80,14 @@ export function autoQueueFromBuffers(
           // Race-defensive: if consumeInput returned less than expected
           // (e.g. because another path drained between the inputAt
           // check and the consume), put it back rather than half-feed.
-          if (taken > 0) buffers.addInput(wx, wy, def.inputItem, taken, def.inputQuantity * INPUT_BUFFER_MULTIPLIER);
+          if (taken > 0)
+            buffers.addInput(
+              wx,
+              wy,
+              def.inputItem,
+              taken,
+              def.inputQuantity * INPUT_BUFFER_MULTIPLIER,
+            );
           continue;
         }
         record.data.metadata[idx] = setQueuedJobs(record.data.metadata[idx] ?? 0, queued + 1);

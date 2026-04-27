@@ -16,10 +16,7 @@
 import type { Inventory } from "../state/inventory";
 import { getItemDef, type ItemId } from "../state/items";
 import type { BuildingBufferStore } from "../world/farming/building_buffer";
-import {
-  buildingInputCap,
-  buildingOutputCap,
-} from "../world/farming/building_buffer_tick";
+import { buildingInputCap, buildingOutputCap } from "../world/farming/building_buffer_tick";
 import {
   type BuildingDef,
   buildingForTile,
@@ -37,10 +34,7 @@ export interface BuildingWindowDeps {
   // the chunk has been evicted / the tile dismantled. The window uses
   // tileId to verify the building hasn't changed and state/metadata to
   // render cycle progress + queued count.
-  readTile: (
-    x: number,
-    y: number,
-  ) => { tileId: number; state: number; metadata: number } | null;
+  readTile: (x: number, y: number) => { tileId: number; state: number; metadata: number } | null;
   toast?: (message: string) => void;
 }
 
@@ -101,7 +95,9 @@ export function createBuildingWindow(deps: BuildingWindowDeps): BuildingWindowAp
     const inputHave = deps.buffers.totalInputAt(target.x, target.y);
     const outputHave = deps.buffers.totalOutputAt(target.x, target.y);
     statusEl.innerHTML = "";
-    statusEl.appendChild(infoRow("Cycle", progress === 0 ? "idle" : `${progress}/${def.cycleTime}`));
+    statusEl.appendChild(
+      infoRow("Cycle", progress === 0 ? "idle" : `${progress}/${def.cycleTime}`),
+    );
     statusEl.appendChild(infoRow("Queued", String(queued)));
     statusEl.appendChild(infoRow("Input", `${inputHave}/${inputCap}`));
     statusEl.appendChild(infoRow("Output", `${outputHave}/${outputCap}`));
@@ -201,8 +197,7 @@ function buildInputRow(
     const btn = (ev.target as HTMLElement | null)?.closest("[data-amt]") as HTMLElement | null;
     if (!btn) return;
     const raw = btn.dataset.amt as "1" | "cycle" | "all";
-    const wanted =
-      raw === "all" ? inventoryCount : raw === "cycle" ? def.inputQuantity : 1;
+    const wanted = raw === "all" ? inventoryCount : raw === "cycle" ? def.inputQuantity : 1;
     const amount = Math.min(inventoryCount, wanted);
     if (amount <= 0) return;
     const cap = buildingInputCap(def.inputQuantity);

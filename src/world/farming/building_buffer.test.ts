@@ -65,7 +65,9 @@ describe("BuildingBufferStore — lifecycle", () => {
     s.addInput(0, 0, ITEM_IDS.WHEAT, 1, 100);
     s.addOutput(0, 0, ITEM_IDS.FLOUR, 1, 100);
     s.addInput(5, 5, ITEM_IDS.WHEAT, 1, 100);
-    const seen = Array.from(s.tiles()).map(({ x, y }) => `${x},${y}`).sort();
+    const seen = Array.from(s.tiles())
+      .map(({ x, y }) => `${x},${y}`)
+      .sort();
     expect(seen).toEqual(["0,0", "5,5"]);
   });
 });

@@ -5,10 +5,7 @@
 import type { Camera } from "../input/camera";
 import type { IoClient } from "../workers/io_client";
 import type { ChunkManager } from "../world/chunk_manager";
-import type {
-  BuildingBufferSnapshot,
-  BuildingBufferStore,
-} from "../world/farming/building_buffer";
+import type { BuildingBufferSnapshot, BuildingBufferStore } from "../world/farming/building_buffer";
 import type { CrateContentsSnapshot, CrateStore } from "../world/farming/crate";
 import type { EntityManager } from "./entities/entity_manager";
 import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
