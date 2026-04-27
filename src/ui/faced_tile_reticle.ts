@@ -5,6 +5,12 @@
 //
 // Pure presentational layer — no input. Click consumption while possessed
 // lives in tile_interaction so it can short-circuit before the picker runs.
+//
+// Two visual states (Phase 9): yellow active when the contextual action
+// resolver returns an executable action for the faced tile, muted grey
+// when nothing applies. The caller drives the toggle via
+// `setActionable(boolean)` each frame; the reticle itself doesn't run
+// the resolver.
 
 import type { Camera } from "../input/camera";
 import type { Entity } from "../state/entities/entity";
@@ -12,12 +18,24 @@ import type { PossessionController } from "../state/possession";
 
 export class FacedTileReticle {
   private readonly el: HTMLElement;
+  // Tracked so we don't toggle the className every frame — the DOM
+  // does the diffing but skipping the call is still cheaper at 60Hz.
+  private currentActionable = false;
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement("div");
     this.el.className = "ss-faced-reticle";
     this.el.style.display = "none";
     parent.appendChild(this.el);
+  }
+
+  // Switch between active (yellow) and muted (grey) styling. Called
+  // by the per-frame loop after the resolver runs; safe to call every
+  // frame since the className flip only happens on transitions.
+  setActionable(actionable: boolean): void {
+    if (actionable === this.currentActionable) return;
+    this.currentActionable = actionable;
+    this.el.classList.toggle("ss-faced-reticle-actionable", actionable);
   }
 
   update(

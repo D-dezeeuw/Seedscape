@@ -102,9 +102,7 @@ export interface SpawnInitialResult {
 //
 // Subsequent launches restore from the save snapshot — applySnapshot
 // bypasses this entirely.
-export async function spawnInitialEntities(
-  opts: SpawnInitialOptions,
-): Promise<SpawnInitialResult> {
+export async function spawnInitialEntities(opts: SpawnInitialOptions): Promise<SpawnInitialResult> {
   const data = await waitForChunk(opts.chunkManager, 0, 0);
   if (!data) {
     console.warn("spawnInitialEntities: chunk(0,0) never loaded");
@@ -159,10 +157,7 @@ export async function spawnInitialEntities(
 // see + plant on them. Tiles that aren't walkable (water, fixed
 // obstacles) are skipped — a partial patch is fine. Returns the
 // number of tiles actually placed.
-function placeStarterFarmPatch(
-  data: ChunkData,
-  settlerLocal: { x: number; y: number },
-): number {
+function placeStarterFarmPatch(data: ChunkData, settlerLocal: { x: number; y: number }): number {
   const baseX = settlerLocal.x - 3;
   const baseY = settlerLocal.y;
   let placed = 0;

@@ -1,32 +1,41 @@
-// Possess-mode action key. Pressing E (default) runs the toolbar's
-// currently-selected tool against the avatar's faced tile, but only if
-// that tool is in the avatar's `availableActions`. No tool selected, or
-// tool not allowed for this entity class → no-op.
+// Possess-mode action key (default: E). When possessing, the key
+// runs the contextual action resolver against the avatar's faced tile
+// and executes whichever PossessedAction came back. When NOT
+// possessing, the key is a no-op — god-mode actions come from
+// canvas clicks via tile_interaction.
+//
+// Phase 9 replaced the previous "fire the toolbar's selected tool"
+// behavior. The new flow is data-driven via possession_actions.ts:
+//   - resolve(faced tile, settler state) → PossessedAction
+//   - execute(action) → mutate world OR return a window-open intent
+// The caller wires the open intents (open_container / open_building)
+// to their windows via openContainer / openBuilding callbacks.
 //
 // Lives alongside InputRouter rather than inside it because this is a
 // one-shot key, not a continuous state input.
 
+import type { EntityServices } from "../state/entities/entity";
 import { LivingEntity } from "../state/entities/living_entity";
-import type { Inventory } from "../state/inventory";
-import type { Player } from "../state/player";
+import { Villager } from "../state/entities/villager";
 import type { PossessionController } from "../state/possession";
-import type { ChunkManager } from "../world/chunk_manager";
-import { worldTileToPick } from "./picker";
-import { applyToolAt } from "./tile_interaction";
-import type { ToolState } from "./tool";
+import { executePossessedAction, resolvePossessedAction } from "../state/possession_actions";
 
 const ACTION_KEYS = new Set(["e", "E"]);
 
-interface Deps {
+export interface ActionKeyDeps {
   possession: PossessionController;
-  tool: ToolState;
-  inventory: Inventory;
-  player: Player;
-  chunkManager: ChunkManager;
-  onEdit?: (chunkX: number, chunkY: number) => void;
+  services: EntityServices;
+  // Returns the current sim tick — used as the timestamp on memory
+  // events the executor stamps. Threaded as a getter (not a number)
+  // so it sees the live value at fire time, not at attach time.
+  getSimTick: () => number;
+  // Hooks for the two "open a window" outcomes — the executor returns
+  // these without DOM access; main.ts threads the actual window APIs.
+  openContainer: (worldX: number, worldY: number, settler: Villager) => void;
+  openBuilding: (worldX: number, worldY: number) => void;
 }
 
-export function attachActionKey(deps: Deps): () => void {
+export function attachActionKey(deps: ActionKeyDeps): () => void {
   const onKey = (e: KeyboardEvent): void => {
     if (!ACTION_KEYS.has(e.key)) return;
     // Don't hijack typing in any future text inputs.
@@ -38,24 +47,29 @@ export function attachActionKey(deps: Deps): () => void {
     if (!deps.possession.isPossessing()) return;
     const ent = deps.possession.entity;
     if (!(ent instanceof LivingEntity)) return;
-    const tool = deps.tool.current;
-    if (tool === "none") return;
-    if (!ent.availableActions.includes(tool)) return;
+    if (!(ent instanceof Villager)) return;
 
-    const target = ent.facedTile();
-    const pick = worldTileToPick(target.x, target.y);
-    applyToolAt(
-      {
-        tool: deps.tool,
-        inventory: deps.inventory,
-        player: deps.player,
-        chunkManager: deps.chunkManager,
-        ...(deps.onEdit ? { onEdit: deps.onEdit } : {}),
-      },
-      pick,
-    );
+    runContextualAction(ent, deps);
   };
 
   window.addEventListener("keydown", onKey);
   return () => window.removeEventListener("keydown", onKey);
+}
+
+// Same dispatch the action bar's button uses on click. Exported so
+// main.ts can wire both sources to identical behavior.
+export function runContextualAction(villager: Villager, deps: ActionKeyDeps): void {
+  const target = villager.facedTile();
+  const tile = deps.services.tileWorld?.readTile(target.x, target.y);
+  const action = resolvePossessedAction(
+    villager,
+    tile ? { x: target.x, y: target.y, ...tile } : null,
+    deps.services,
+  );
+  const result = executePossessedAction(villager, action, deps.services, deps.getSimTick());
+  if (result.kind === "open_container") {
+    deps.openContainer(result.container.x, result.container.y, villager);
+  } else if (result.kind === "open_building") {
+    deps.openBuilding(result.building.x, result.building.y);
+  }
 }
