@@ -215,7 +215,21 @@ async function bootstrap(): Promise<void> {
   // launch (saved games skip this path entirely via applySnapshot).
   if (!existingSave) {
     chunkManager.update({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
-    await spawnInitialEntities({ chunkManager, entityManager, worldSeed: WORLD_SEED });
+    const spawnResult = await spawnInitialEntities({
+      chunkManager,
+      entityManager,
+      worldSeed: WORLD_SEED,
+    });
+    // The starter farm patch mutates chunk(0,0)'s tile arrays — mark it
+    // dirty so the GPU upload picks up the new tilled tiles AND the
+    // simulation sees the mutation (relevant once the player plants).
+    for (const c of spawnResult.mutatedChunks) {
+      chunkManager.markDirty(
+        c.chunkX,
+        c.chunkY,
+        CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION,
+      );
+    }
   }
 
   const detachControls = attachCameraControls(camera, canvas);
