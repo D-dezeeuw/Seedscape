@@ -10,6 +10,7 @@ import { Villager } from "../state/entities/villager";
 import type { Inventory } from "../state/inventory";
 import { ITEM_IDS } from "../state/items";
 import type { Player } from "../state/player";
+import { isDebugUnlockAll, setDebugUnlockAll } from "../state/unlocks";
 import {
   CHUNK_FLAG_DIRTY_RENDER,
   CHUNK_FLAG_DIRTY_SIMULATION,
@@ -63,6 +64,11 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="xp-reset">Reset XP</button>
     </div>
+    <div class="ss-subhead">Unlocks</div>
+    <div class="ss-debug-row">
+      <button class="ss-btn" data-act="unlock-all-toggle" data-field="unlock-all-label">Unlock all: OFF</button>
+      <button class="ss-btn" data-act="give-all-seeds">+50 of every seed</button>
+    </div>
     <div class="ss-subhead">Entities</div>
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="settler-to-camera">Settler → camera</button>
@@ -81,6 +87,16 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     </div>
   `;
   deps.parent.appendChild(panel);
+
+  const unlockAllLabel = panel.querySelector(
+    '[data-field="unlock-all-label"]',
+  ) as HTMLElement | null;
+  const refreshUnlockLabel = (): void => {
+    if (unlockAllLabel) {
+      unlockAllLabel.textContent = `Unlock all: ${isDebugUnlockAll() ? "ON" : "OFF"}`;
+    }
+  };
+  refreshUnlockLabel();
 
   const handler = (event: Event): void => {
     const trigger = (event.target as HTMLElement | null)?.closest(
@@ -113,6 +129,25 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
       case "xp-reset":
         deps.player.xp = 0;
         return;
+      case "unlock-all-toggle": {
+        const next = !isDebugUnlockAll();
+        setDebugUnlockAll(next);
+        refreshUnlockLabel();
+        deps.toast?.(`Unlock-all: ${next ? "ON" : "OFF"}`);
+        return;
+      }
+      case "give-all-seeds": {
+        // Drop 50 of each seed kind into inventory + a chunk of coins
+        // so the player can immediately place anything they unlocked.
+        // Uses the seed item ids directly to avoid hard-coding a list
+        // here and missing future seeds.
+        for (const id of [ITEM_IDS.WHEAT_SEED, ITEM_IDS.CARROT_SEED, ITEM_IDS.CORN_SEED]) {
+          deps.inventory.add(id, 50);
+        }
+        deps.player.addCoins(1000);
+        deps.toast?.("+50 of each seed, +1000c");
+        return;
+      }
       case "settler-to-camera": {
         // Pick the first villager and yank them to the camera center —
         // useful when the wander target took them off-screen.

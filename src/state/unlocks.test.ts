@@ -1,5 +1,12 @@
-import { describe, expect, test } from "vitest";
-import { isBuildingUnlocked, isSeedUnlocked, newUnlocksAtLevel, unlocksForLevel } from "./unlocks";
+import { afterEach, describe, expect, test } from "vitest";
+import {
+  isBuildingUnlocked,
+  isDebugUnlockAll,
+  isSeedUnlocked,
+  newUnlocksAtLevel,
+  setDebugUnlockAll,
+  unlocksForLevel,
+} from "./unlocks";
 
 describe("unlocksForLevel", () => {
   test("level 1 unlocks wheat seed only", () => {
@@ -56,5 +63,41 @@ describe("isBuildingUnlocked / isSeedUnlocked", () => {
   test("unknown ids are never unlocked", () => {
     expect(isBuildingUnlocked(99, 9999)).toBe(false);
     expect(isSeedUnlocked(99, 9999)).toBe(false);
+  });
+});
+
+describe("setDebugUnlockAll override", () => {
+  // The flag is module-local; reset between tests so neither order
+  // dependency nor a leaked-on test can mask a regression.
+  afterEach(() => setDebugUnlockAll(false));
+
+  test("toggle round-trip via isDebugUnlockAll", () => {
+    expect(isDebugUnlockAll()).toBe(false);
+    setDebugUnlockAll(true);
+    expect(isDebugUnlockAll()).toBe(true);
+    setDebugUnlockAll(false);
+    expect(isDebugUnlockAll()).toBe(false);
+  });
+
+  test("when ON, all real unlocks return true regardless of level", () => {
+    setDebugUnlockAll(true);
+    // Mill normally requires level 3; corn seed requires level 7.
+    expect(isBuildingUnlocked(1, 200)).toBe(true);
+    expect(isSeedUnlocked(1, 616)).toBe(true);
+  });
+
+  test("when ON, unknown ids still return false", () => {
+    setDebugUnlockAll(true);
+    expect(isBuildingUnlocked(99, 9999)).toBe(false);
+    expect(isSeedUnlocked(99, 9999)).toBe(false);
+  });
+
+  test("when ON, unlocksForLevel returns every defined unlock id", () => {
+    setDebugUnlockAll(true);
+    // Level 1 normally has only seed.wheat; with the override all ids land.
+    const set = unlocksForLevel(1);
+    expect(set.has("seed.wheat")).toBe(true);
+    expect(set.has("seed.corn")).toBe(true);
+    expect(set.has("building.bakery")).toBe(true);
   });
 });
