@@ -1,9 +1,17 @@
 import { describe, expect, test } from "vitest";
-import { setWaterLevel } from "../world/farming/tile_actions";
-import type { EntityServices } from "./entities/entity";
+import { allocChunkData, type ChunkRecord, tileIndex } from "../world/chunk";
+import { chunkKey } from "../world/coords";
+import { harvestTile, plantSeed, setWaterLevel, tillTile, waterTile } from "../world/farming/tile_actions";
+import type { EntityServices, TileWorldAccess } from "./entities/entity";
 import { Villager } from "./entities/villager";
-import { ITEM_IDS } from "./items";
-import { isActionable, type PossessedAction, resolvePossessedAction, type ResolverTile } from "./possession_actions";
+import { ITEM_IDS, type ItemId } from "./items";
+import {
+  executePossessedAction,
+  isActionable,
+  type PossessedAction,
+  resolvePossessedAction,
+  type ResolverTile,
+} from "./possession_actions";
 
 const TILE_DRY_GRASS = 10;
 const TILE_FARMLAND_TILLED = 13;
@@ -115,5 +123,143 @@ describe("isActionable", () => {
     expect(isActionable({ kind: "blocked", reason: "need_water" })).toBe(false);
     expect(isActionable({ kind: "till", tile: { x: 0, y: 0 } })).toBe(true);
     expect(isActionable({ kind: "harvest_crop", tile: { x: 0, y: 0 } })).toBe(true);
+  });
+});
+
+// Tile-world stub backed by one in-memory ChunkData record at (0,0).
+// Mirrors the production main.ts wiring: every mutating method routes
+// through the matching tile_actions helper so executor tests verify
+// the same code path the god-mode tool uses.
+function makeStubWorld(): { tw: TileWorldAccess; data: ReturnType<typeof allocChunkData> } {
+  const data = allocChunkData();
+  const rec: ChunkRecord = { data, flags: 0 };
+  const map = new Map<string, ChunkRecord>([[chunkKey(0, 0), rec]]);
+  const tw: TileWorldAccess = {
+    readTile(wx, wy) {
+      const i = tileIndex(wx, wy);
+      return { tileId: data.tileId[i] ?? 0, state: data.state[i] ?? 0, metadata: data.metadata[i] ?? 0 };
+    },
+    harvestAt(wx, wy) {
+      const r = harvestTile(data, wx, wy);
+      const out: { applied: boolean; produceItem?: number; yield?: number } = { applied: r.applied };
+      if (r.produceItem !== undefined) out.produceItem = r.produceItem;
+      if (r.yield !== undefined) out.yield = r.yield;
+      return out;
+    },
+    waterAt(wx, wy) {
+      return waterTile(data, wx, wy).applied;
+    },
+    plantSeedAt(wx, wy, seedItem) {
+      return plantSeed(data, wx, wy, seedItem as ItemId).applied;
+    },
+    tillAt(wx, wy) {
+      return tillTile(data, wx, wy).applied;
+    },
+    *allChunkRecords() {
+      yield* map;
+    },
+  };
+  return { tw, data };
+}
+
+describe("executePossessedAction", () => {
+  test("haul_water sets reserve to max and records HAULED_WATER memory", () => {
+    const { tw } = makeStubWorld();
+    const v = makeVillager();
+    v.waterReserve = 0;
+    const services: EntityServices = { tileWorld: tw };
+    const result = executePossessedAction(
+      v,
+      { kind: "haul_water", source: { x: 5, y: 5 } },
+      services,
+      42,
+    );
+    expect(result).toEqual({ kind: "ok" });
+    expect(v.waterReserve).toBe(5);
+    const types = v.shortTermMemory.filter((m) => m.type !== 0).map((m) => m.type);
+    expect(types).toContain(4); // HAULED_WATER
+  });
+
+  test("water_crop drains reserve and waters the tile", () => {
+    const { tw, data } = makeStubWorld();
+    // Plant a thirsty wheat at (5,5).
+    data.tileId[tileIndex(5, 5)] = 100;
+    data.state[tileIndex(5, 5)] = 2;
+    data.metadata[tileIndex(5, 5)] = setWaterLevel(0, 0);
+    const v = makeVillager();
+    v.waterReserve = 3;
+    const result = executePossessedAction(
+      v,
+      { kind: "water_crop", tile: { x: 5, y: 5 } },
+      { tileWorld: tw },
+      0,
+    );
+    expect(result).toEqual({ kind: "ok" });
+    expect(v.waterReserve).toBe(2);
+  });
+
+  test("harvest_crop adds produce to settler carry", () => {
+    const { tw, data } = makeStubWorld();
+    data.tileId[tileIndex(7, 7)] = 100; // wheat
+    data.state[tileIndex(7, 7)] = 7; // ripe
+    const v = makeVillager();
+    const result = executePossessedAction(
+      v,
+      { kind: "harvest_crop", tile: { x: 7, y: 7 } },
+      { tileWorld: tw },
+      0,
+    );
+    expect(result).toEqual({ kind: "ok" });
+    expect(v.carriedItems.size).toBeGreaterThan(0);
+  });
+
+  test("plant_seed consumes a seed and stamps the tile", () => {
+    const { tw, data } = makeStubWorld();
+    data.tileId[tileIndex(3, 3)] = 13; // tilled
+    data.state[tileIndex(3, 3)] = 0;
+    const v = makeVillager();
+    v.pickup(ITEM_IDS.WHEAT_SEED, 1);
+    const result = executePossessedAction(
+      v,
+      { kind: "plant_seed", tile: { x: 3, y: 3 }, seedId: ITEM_IDS.WHEAT_SEED },
+      { tileWorld: tw },
+      0,
+    );
+    expect(result).toEqual({ kind: "ok" });
+    expect(v.carriedItems.get(ITEM_IDS.WHEAT_SEED) ?? 0).toBe(0);
+    expect(data.tileId[tileIndex(3, 3)]).toBe(100); // wheat seedling
+  });
+
+  test("till stamps farmland over dry grass", () => {
+    const { tw, data } = makeStubWorld();
+    data.tileId[tileIndex(2, 2)] = 10; // dry grass
+    const v = makeVillager();
+    const result = executePossessedAction(
+      v,
+      { kind: "till", tile: { x: 2, y: 2 } },
+      { tileWorld: tw },
+      0,
+    );
+    expect(result).toEqual({ kind: "ok" });
+    expect(data.tileId[tileIndex(2, 2)]).toBe(13);
+  });
+
+  test("open_container returns container coords for the caller to open the window", () => {
+    const v = makeVillager();
+    const result = executePossessedAction(
+      v,
+      { kind: "open_container", container: { x: 4, y: 4 }, label: "Storage Crate" },
+      {},
+      0,
+    );
+    expect(result).toEqual({ kind: "open_container", container: { x: 4, y: 4 } });
+  });
+
+  test("blocked / none → noop", () => {
+    const v = makeVillager();
+    expect(executePossessedAction(v, { kind: "none" }, {}, 0)).toEqual({ kind: "noop" });
+    expect(
+      executePossessedAction(v, { kind: "blocked", reason: "need_seed" }, {}, 0),
+    ).toEqual({ kind: "noop" });
   });
 });

@@ -159,6 +159,64 @@ export function injectUiStyles(): void {
       min-width: 80px;
     }
 
+    /* Phase 9 contextual action bar — replaces the toolbar's tool
+       row while possessing. Same anchor (bottom-centre) as the
+       toolbar; sits above it via z-index so the toolbar's window
+       row stays clickable below. */
+    .ss-possession-bar {
+      position: fixed;
+      bottom: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      pointer-events: auto;
+      z-index: 11;
+    }
+    .ss-possession-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: rgba(20, 26, 32, 0.94);
+      border: 1px solid rgba(255, 224, 96, 0.7);
+      border-radius: 6px;
+      color: #e8eaed;
+      font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      cursor: pointer;
+      box-shadow: 0 0 8px 2px rgba(255, 224, 96, 0.25);
+    }
+    .ss-possession-action:disabled {
+      cursor: default;
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: none;
+      color: rgba(232, 234, 237, 0.55);
+    }
+    .ss-possession-action:hover:not(:disabled) {
+      border-color: rgba(255, 224, 96, 1);
+      box-shadow: 0 0 10px 3px rgba(255, 224, 96, 0.45);
+    }
+    .ss-key-hint {
+      display: inline-block;
+      min-width: 16px;
+      text-align: center;
+      padding: 2px 6px;
+      background: rgba(255, 224, 96, 0.18);
+      border: 1px solid rgba(255, 224, 96, 0.5);
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .ss-possession-hint {
+      padding: 6px 12px;
+      background: rgba(20, 26, 32, 0.85);
+      border: 1px dashed rgba(255, 255, 255, 0.18);
+      border-radius: 4px;
+      color: rgba(232, 234, 237, 0.7);
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
     .ss-btn {
       background: rgba(255,255,255,0.05);
       color: #e8eaed;
@@ -204,11 +262,23 @@ export function injectUiStyles(): void {
       top: 0;
       left: 0;
       box-sizing: border-box;
-      border: 2px solid rgba(232, 196, 104, 0.95);
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5) inset;
+      /* Default (idle / no contextual action) — thin grey so the
+         player still sees their facing direction without it
+         screaming "actionable". */
+      border: 2px solid rgba(200, 200, 210, 0.45);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
       pointer-events: none;
       z-index: 4;
       will-change: transform, width, height;
+      transition: border-color 80ms ease-out, box-shadow 80ms ease-out;
+    }
+    /* Active state — Phase 9 contextual action available. Bright
+       yellow border + glow draws the eye to "press E does this". */
+    .ss-faced-reticle-actionable {
+      border-color: rgba(255, 224, 96, 1);
+      box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.6) inset,
+        0 0 8px 2px rgba(255, 224, 96, 0.55);
     }
 
     /* Floating name labels above entities. Positioned per-frame from

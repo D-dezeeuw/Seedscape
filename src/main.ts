@@ -59,7 +59,7 @@ import { buildingForTile } from "./world/farming/building_registry";
 import { CrateStore } from "./world/farming/crate";
 import { restockAutoContainers } from "./world/farming/restock";
 import { applySimDelta } from "./world/farming/sim_pipeline";
-import { harvestTile, plantSeed, waterTile } from "./world/farming/tile_actions";
+import { harvestTile, plantSeed, tillTile, waterTile } from "./world/farming/tile_actions";
 import { buildChunkMask, isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
@@ -239,13 +239,10 @@ async function bootstrap(): Promise<void> {
 
   const inputRouter = new InputRouter();
   const detachInputRouter = attachInputRouter(inputRouter, window);
-  const detachActionKey = attachActionKey({
-    possession,
-    tool,
-    inventory,
-    player,
-    chunkManager,
-  });
+  // Action key is attached AFTER entityServices, containerWindow, and
+  // buildingWindow are constructed (Phase 9 routes E through the
+  // possession action resolver, which depends on all three). Search
+  // for `detachActionKey` below.
 
   // Camera follow + key reset on possession transitions. Subscribing
   // here instead of inline at enter() means save-load triggered enters
@@ -629,6 +626,19 @@ async function bootstrap(): Promise<void> {
       }
       return r.applied;
     },
+    tillAt(wx, wy) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = chunkManager.peekChunk(cx, cy);
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = tillTile(rec.data, lx, ly);
+      if (r.applied) {
+        chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+      }
+      return r.applied;
+    },
     allChunkRecords() {
       return chunkManager.allChunkRecords();
     },
@@ -641,6 +651,23 @@ async function bootstrap(): Promise<void> {
     buildingBuffers,
     tileWorld,
   };
+
+  // Phase 9: action key (E) routes through the possession action
+  // resolver. Window-open results are dispatched to the existing
+  // container/building windows; the container window flips to the
+  // settler's inventory view via setInventory before opening.
+  const detachActionKey = attachActionKey({
+    possession,
+    services: entityServices,
+    getSimTick: () => tick,
+    openContainer: (x, y, settler) => {
+      containerWindow.setInventory(asSettlerInventoryLike(settler));
+      containerWindow.showFor(x, y);
+    },
+    openBuilding: (x, y) => {
+      buildingWindow.showFor(x, y);
+    },
+  });
 
   // Walkability lookup used by entity AI. Returns false if the chunk
   // hasn't been generated yet — the wander code already falls back to

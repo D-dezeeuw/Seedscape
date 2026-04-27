@@ -165,6 +165,9 @@ function tileWorldFor(world: ReturnType<typeof buildWorld>): TileWorldAccess {
       // Stagger test never plants — only HARVEST jobs are exercised.
       return false;
     },
+    tillAt() {
+      return false;
+    },
     *allChunkRecords() {
       for (const [k, r] of world.chunks) yield [k, r];
     },

@@ -20,7 +20,13 @@ import { BuildingBufferStore } from "../../world/farming/building_buffer";
 import { buildingInputCap } from "../../world/farming/building_buffer_tick";
 import { CrateStore } from "../../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../../world/farming/crop_registry";
-import { harvestTile, plantSeed, setWaterLevel, waterTile } from "../../world/farming/tile_actions";
+import {
+  harvestTile,
+  plantSeed,
+  setWaterLevel,
+  tillTile,
+  waterTile,
+} from "../../world/farming/tile_actions";
 import { buildChunkMask } from "../../world/walkability";
 import { ITEM_IDS, type ItemId } from "../items";
 import {
@@ -158,6 +164,17 @@ function tileWorldFor(world: World, dirtyMarks: Set<string>): TileWorldAccess {
       const lx = wx - cx * CHUNK_SIZE;
       const ly = wy - cy * CHUNK_SIZE;
       const r = plantSeed(rec.data, lx, ly, seedItem as ItemId);
+      if (r.applied) dirtyMarks.add(chunkKey(cx, cy));
+      return r.applied;
+    },
+    tillAt(wx, wy) {
+      const cx = Math.floor(wx / CHUNK_SIZE);
+      const cy = Math.floor(wy / CHUNK_SIZE);
+      const rec = world.chunks.get(chunkKey(cx, cy));
+      if (!rec) return false;
+      const lx = wx - cx * CHUNK_SIZE;
+      const ly = wy - cy * CHUNK_SIZE;
+      const r = tillTile(rec.data, lx, ly);
       if (r.applied) dirtyMarks.add(chunkKey(cx, cy));
       return r.applied;
     },

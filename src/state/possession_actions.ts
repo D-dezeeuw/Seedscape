@@ -16,6 +16,7 @@ import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED, cropForTile } from "../world
 import { getWaterLevel } from "../world/farming/tile_actions";
 import { isWaterSource } from "../world/walkability";
 import type { EntityServices } from "./entities/entity";
+import { MEMORY_EVENT_TYPES, recordMemory } from "./entities/living_entity";
 import { MAX_WATER_RESERVE, type Villager } from "./entities/villager";
 import type { ItemId } from "./items";
 
@@ -141,6 +142,115 @@ function carriedSeedId(v: Villager): ItemId | null {
     if (isSeedItem(item)) return item;
   }
   return null;
+}
+
+// Side-effecting executor — runs the resolved action's world mutation.
+// Returns one of: "ok" (mutation landed), "noop" (nothing to do — e.g.
+// the action was `none` or `blocked`), or "container" / "building"
+// (caller should open the matching window — those don't mutate the
+// world directly). Lives next to the resolver so the two are
+// trivially in sync; tests can drive the dispatch via a mock services.
+//
+// Memory events are recorded so possessed actions show up in the
+// Person window's history alongside autonomous ones — the player's
+// turn at the wheel still counts as "the settler did this thing".
+export type ActionExecutionResult =
+  | { kind: "ok" }
+  | { kind: "noop" }
+  | { kind: "open_container"; container: { x: number; y: number } }
+  | { kind: "open_building"; building: { x: number; y: number } };
+
+export function executePossessedAction(
+  villager: Villager,
+  action: PossessedAction,
+  services: EntityServices,
+  simTick: number,
+): ActionExecutionResult {
+  const tw = services.tileWorld;
+  switch (action.kind) {
+    case "open_container":
+      return { kind: "open_container", container: action.container };
+    case "open_building":
+      return { kind: "open_building", building: action.building };
+    case "haul_water": {
+      // Possessed equivalent of the HAUL_WATER job's actAtSource. We
+      // already verified the faced tile is a water source in the
+      // resolver; just refill the reserve.
+      villager.waterReserve = MAX_WATER_RESERVE;
+      recordMemoryHere(villager, "HAULED_WATER", 0, action.source, simTick);
+      return { kind: "ok" };
+    }
+    case "water_crop": {
+      if (!tw) return { kind: "noop" };
+      if (villager.waterReserve <= 0) return { kind: "noop" };
+      const applied = tw.waterAt(action.tile.x, action.tile.y);
+      if (!applied) return { kind: "noop" };
+      villager.waterReserve--;
+      const t = tw.readTile(action.tile.x, action.tile.y);
+      const crop = t ? cropForTile(t.tileId) : null;
+      recordMemoryHere(villager, "WATERED", crop?.produceItem ?? 0, action.tile, simTick);
+      return { kind: "ok" };
+    }
+    case "harvest_crop": {
+      if (!tw) return { kind: "noop" };
+      const result = tw.harvestAt(action.tile.x, action.tile.y);
+      if (!result.applied) return { kind: "noop" };
+      if (result.produceItem != null && result.yield != null) {
+        villager.pickup(result.produceItem as ItemId, result.yield);
+        recordMemoryHere(
+          villager,
+          "HARVESTED",
+          result.produceItem,
+          action.tile,
+          simTick,
+        );
+      }
+      return { kind: "ok" };
+    }
+    case "plant_seed": {
+      if (!tw) return { kind: "noop" };
+      // Burn one seed from carry; if the plant call fails (someone
+      // beat us to it), refund.
+      const dropped = villager.drop(action.seedId, 1);
+      if (dropped === 0) return { kind: "noop" };
+      const planted = tw.plantSeedAt(action.tile.x, action.tile.y, action.seedId);
+      if (!planted) {
+        villager.pickup(action.seedId, dropped);
+        return { kind: "noop" };
+      }
+      recordMemoryHere(villager, "PLANTED", action.seedId, action.tile, simTick);
+      return { kind: "ok" };
+    }
+    case "till": {
+      if (!tw) return { kind: "noop" };
+      const applied = tw.tillAt(action.tile.x, action.tile.y);
+      return applied ? { kind: "ok" } : { kind: "noop" };
+    }
+    case "blocked":
+    case "none":
+      return { kind: "noop" };
+  }
+}
+
+// Stamp a memory ring-buffer entry for an action the possessed
+// settler just performed. Same shape as the autonomous job paths
+// use, so the Person window's history doesn't distinguish between
+// "settler did this on its own" and "player drove this".
+type MemoryKind = "HARVESTED" | "PLANTED" | "WATERED" | "HAULED_WATER" | "HAULED_SEED" | "DEPOSITED";
+function recordMemoryHere(
+  v: Villager,
+  kind: MemoryKind,
+  subjectId: number,
+  pos: { x: number; y: number },
+  simTick: number,
+): void {
+  recordMemory(v, {
+    type: MEMORY_EVENT_TYPES[kind],
+    tick: simTick,
+    subjectId,
+    tileX: pos.x,
+    tileY: pos.y,
+  });
 }
 
 // Display name for a container tile. Two containers exist today; the

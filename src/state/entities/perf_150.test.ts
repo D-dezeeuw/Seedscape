@@ -163,6 +163,10 @@ function tileWorldFor(world: ReturnType<typeof buildBigWorld>): TileWorldAccess 
       // Perf test never plants — no PLANT_SEED jobs are emitted.
       return false;
     },
+    tillAt() {
+      // Perf test never tills either — same rationale.
+      return false;
+    },
     *allChunkRecords() {
       for (const [k, r] of world.chunks) yield [k, r];
     },

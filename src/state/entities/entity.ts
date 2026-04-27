@@ -90,6 +90,12 @@ export interface TileWorldAccess {
   // the player's seed range (600..699). Returns whether it applied
   // (false when the tile got planted by someone else mid-flight, etc.).
   plantSeedAt(worldTileX: number, worldTileY: number, seedItem: number): boolean;
+  // Till a tillable ground tile (dry grass / rich soil / untilled
+  // farmland) into farmland-tilled. Returns whether it applied — false
+  // when the source tile changed mid-flight or wasn't tillable.
+  // Phase 9 added this so possessed-settler tilling could go through
+  // the same ChunkManager path as the god-mode tool.
+  tillAt(worldTileX: number, worldTileY: number): boolean;
   // Iterate loaded chunks (for emitter, water-finder, crate scans).
   allChunkRecords(): IterableIterator<[string, import("../../world/chunk").ChunkRecord]>;
 }
