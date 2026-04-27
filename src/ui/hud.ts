@@ -3,6 +3,7 @@
 
 import { levelProgress } from "../state/level";
 import type { Player } from "../state/player";
+import { wrapPanelStructure } from "./window";
 
 export function createHud(parent: HTMLElement, player: Player): () => void {
   const panel = document.createElement("div");
@@ -15,6 +16,7 @@ export function createHud(parent: HTMLElement, player: Player): () => void {
     <div class="ss-row"><span>Coins</span><span data-field="coins"></span></div>
   `;
   parent.appendChild(panel);
+  wrapPanelStructure(panel);
 
   const levelEl = panel.querySelector('[data-field="level"]') as HTMLSpanElement;
   const xpEl = panel.querySelector('[data-field="xp"]') as HTMLSpanElement;

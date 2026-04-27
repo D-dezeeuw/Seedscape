@@ -15,6 +15,7 @@ import {
   cropForTile,
 } from "../world/farming/crop_registry";
 import { getWaterLevel } from "../world/farming/tile_actions";
+import { wrapPanelStructure } from "./window";
 
 interface TileInfoDeps {
   parent: HTMLElement;
@@ -109,6 +110,7 @@ function buildPanel(parent: HTMLElement): { panel: HTMLElement; refs: PanelRefs 
     </div>
   `;
   parent.appendChild(panel);
+  wrapPanelStructure(panel);
   const q = <T extends HTMLElement>(name: string): T =>
     panel.querySelector(`[data-field="${name}"]`) as T;
   const refs: PanelRefs = {
