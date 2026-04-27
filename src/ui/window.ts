@@ -29,14 +29,25 @@ export interface PanelStructure {
 // Reorganizes a panel into header + body. Idempotent: a second call is a
 // no-op so callers (`makeWindow`, plus any panel that pre-wraps itself)
 // can't double-wrap.
+//
+// `headerExtras` are inserted between the title and the close button, in
+// the order given. The person window uses this to mount an eye icon
+// next to its close (×) for a one-shot camera pan to the entity.
 export function wrapPanelStructure(
   panel: HTMLElement,
-  opts: { onClose?: () => void } = {},
+  opts: { onClose?: () => void; headerExtras?: HTMLElement[] } = {},
 ): PanelStructure {
   const existingHeader = panel.querySelector(":scope > .ss-panel-header") as HTMLElement | null;
   const existingBody = panel.querySelector(":scope > .ss-panel-body") as HTMLElement | null;
   if (existingHeader && existingBody) {
-    if (opts.onClose && !existingHeader.querySelector(".ss-panel-close")) {
+    const closeEl = existingHeader.querySelector(".ss-panel-close") as HTMLElement | null;
+    if (opts.headerExtras) {
+      for (const el of opts.headerExtras) {
+        if (closeEl) existingHeader.insertBefore(el, closeEl);
+        else existingHeader.appendChild(el);
+      }
+    }
+    if (opts.onClose && !closeEl) {
       existingHeader.appendChild(buildCloseButton(opts.onClose));
     }
     return { headerEl: existingHeader, bodyEl: existingBody };
@@ -52,6 +63,9 @@ export function wrapPanelStructure(
   panel.insertBefore(header, h3);
   header.appendChild(h3);
 
+  if (opts.headerExtras) {
+    for (const el of opts.headerExtras) header.appendChild(el);
+  }
   if (opts.onClose) {
     header.appendChild(buildCloseButton(opts.onClose));
   }
@@ -86,7 +100,11 @@ function buildCloseButton(onClose: () => void): HTMLButtonElement {
 // window, producing overlapping panels.
 const REGISTRY: Set<UiWindow> = new Set();
 
-export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow {
+export function makeWindow(
+  panel: HTMLElement,
+  onDestroy: () => void,
+  opts: { headerExtras?: HTMLElement[] } = {},
+): UiWindow {
   panel.classList.add("ss-window");
   panel.style.display = "none";
 
@@ -120,7 +138,10 @@ export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow 
     else show();
   };
 
-  wrapPanelStructure(panel, { onClose: hide });
+  wrapPanelStructure(panel, {
+    onClose: hide,
+    ...(opts.headerExtras ? { headerExtras: opts.headerExtras } : {}),
+  });
 
   self = {
     element: panel,

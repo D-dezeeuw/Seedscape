@@ -45,6 +45,9 @@ interface Deps {
   onShow?: (entity: Entity) => void;
   // Fires when the panel hides — via × button, ESC, or another window.
   onHide?: () => void;
+  // One-shot camera pan to the entity. Wired to camera.panTo in main.ts.
+  // Triggered by the eye icon in the panel header.
+  onPanTo?: (entity: Entity) => void;
 }
 
 // ---------- Section provider contract ----------
@@ -249,7 +252,24 @@ export function createPersonWindow(deps: Deps): PersonWindowApi {
   const possessBtn = panel.querySelector('[data-act="possess"]') as HTMLButtonElement;
 
   let current: Entity | null = null;
-  const window_ = makeWindow(panel, () => {});
+
+  // Eye icon: one-shot camera pan to the current entity. Lives in the
+  // panel header (next to the close ×) so it's a single click to find a
+  // settler that wandered off-screen, without engaging full possession.
+  const eyeBtn = document.createElement("button");
+  eyeBtn.className = "ss-panel-eye";
+  eyeBtn.setAttribute("aria-label", "Center camera on this entity");
+  eyeBtn.title = "Center camera";
+  eyeBtn.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+    '<path d="M8 3.5C4.4 3.5 1.7 6 1 8c.7 2 3.4 4.5 7 4.5s6.3-2.5 7-4.5c-.7-2-3.4-4.5-7-4.5zm0 7.5a3 3 0 110-6 3 3 0 010 6zm0-1.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" fill="currentColor"/>' +
+    "</svg>";
+  eyeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (current) deps.onPanTo?.(current);
+  });
+
+  const window_ = makeWindow(panel, () => {}, { headerExtras: [eyeBtn] });
   // Mirror window open/close into the optional callbacks. The toolbar
   // and × button both go through window_.hide() so onChange catches
   // every transition.

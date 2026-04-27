@@ -35,6 +35,7 @@ import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
 import { createPersonWindow } from "./ui/person_window";
+import { createPlantSeedSelector } from "./ui/plant_seed_selector";
 import { createPossessionActionBar } from "./ui/possession_action_bar";
 import { createSettingsPanel } from "./ui/settings_panel";
 import { createSettlersWindow } from "./ui/settlers_window";
@@ -281,6 +282,7 @@ async function bootstrap(): Promise<void> {
     onHide: () => {
       selectedEntityId = null;
     },
+    onPanTo: (entity) => camera.panTo(entity.worldX(), entity.worldY()),
   });
 
   // The container window holds a swappable InventoryLike so the same
@@ -409,6 +411,13 @@ async function bootstrap(): Promise<void> {
     parent: document.body,
     tool,
     windows: toolbarWindows,
+  });
+
+  const detachPlantSelector = createPlantSeedSelector({
+    parent: document.body,
+    tool,
+    inventory,
+    player,
   });
 
   // Closing a toolbar window resets the tool to "Pointer" — most
@@ -870,6 +879,7 @@ async function bootstrap(): Promise<void> {
       detachInfo();
       topLeftStack.remove();
       for (const off of toolbarWindowCloseSubs) off();
+      detachPlantSelector();
       toolbar.destroy();
       possessionBar.destroy();
       detachDebugButton();
