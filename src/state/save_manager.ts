@@ -5,6 +5,7 @@
 import type { Camera } from "../input/camera";
 import type { IoClient } from "../workers/io_client";
 import type { ChunkManager } from "../world/chunk_manager";
+import type { BuildingBufferSnapshot, BuildingBufferStore } from "../world/farming/building_buffer";
 import type { CrateContentsSnapshot, CrateStore } from "../world/farming/crate";
 import type { EntityManager } from "./entities/entity_manager";
 import { deserializeEntity, type SavedEntity, serializeEntity } from "./entities/persistence";
@@ -32,8 +33,13 @@ import type { PossessionController } from "./possession";
 //   Bumped on principle even though deserialize tolerates missing values
 //   (defaults to "male") — keeping the version monotonic for any future
 //   migration tooling.
+// 9 → 10 (Phase 8): per-building input/output buffers. Buildings now hold
+//   cargo-in-flight (settlers feed them, settlers haul outputs) instead of
+//   the player feeding/collecting through their inventory. Snapshots gain
+//   `buildingBuffers`; missing snapshots load as empty (any prior queued
+//   cycles drain naturally and the player can use the building window).
 // Older saves are dropped on load.
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 export interface SavedChunk {
   chunkX: number;
@@ -60,6 +66,9 @@ export interface Snapshot {
   possessedEntityId: number | null;
   // Storage crate contents per world tile. Empty object on a fresh world.
   crates: CrateContentsSnapshot;
+  // Per-building input/output buffers (Phase 8). Empty {input:{},output:{}}
+  // on a fresh world or one with no buildings yet.
+  buildingBuffers: BuildingBufferSnapshot;
 }
 
 export interface SaveManagerDeps {
@@ -73,6 +82,7 @@ export interface SaveManagerDeps {
   entityManager: EntityManager;
   possession: PossessionController;
   crates: CrateStore;
+  buildingBuffers: BuildingBufferStore;
   // Function returning the current game-time-seconds when called.
   gameTimeSec: () => number;
 }
@@ -109,6 +119,7 @@ export class SaveManager {
       entities,
       possessedEntityId: this.deps.possession.entity?.id ?? null,
       crates: this.deps.crates.toJSON(),
+      buildingBuffers: this.deps.buildingBuffers.toJSON(),
     };
   }
 
@@ -140,6 +151,12 @@ export class SaveManager {
     this.deps.inventory.loadFromJSON(snapshot.inventory);
     this.deps.orders.loadFromJSON(snapshot.orders);
     this.deps.crates.loadFromJSON(snapshot.crates);
+    // Older snapshots that pre-date Phase 8 land here without
+    // `buildingBuffers` — version mismatch already drops them at
+    // load(), but defensively tolerate a missing field.
+    if (snapshot.buildingBuffers) {
+      this.deps.buildingBuffers.loadFromJSON(snapshot.buildingBuffers);
+    }
     for (const c of snapshot.chunks) {
       this.deps.chunkManager.preloadChunk(c.chunkX, c.chunkY, {
         tileId: c.tileId,

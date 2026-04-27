@@ -20,6 +20,9 @@
 // reach into other entities or globals. Tests construct a Villager + a
 // fake services object and call tick() in a loop.
 
+import type { BuildingBufferStore } from "../../world/farming/building_buffer";
+import { buildingInputCap, buildingOutputCap } from "../../world/farming/building_buffer_tick";
+import { buildingForTile } from "../../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
 import {
@@ -28,10 +31,12 @@ import {
   cropForTile,
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
-import { isWaterSource } from "../../world/walkability";
+import { isEntityWalkable, isWaterSource } from "../../world/walkability";
 import { type ItemId, isItemDefaultSticky } from "../items";
 import {
+  JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
   JOB_KIND_HAUL_SEED,
   JOB_KIND_HAUL_WATER,
   JOB_KIND_PLANT_SEED,
@@ -302,7 +307,19 @@ export class VillagerJobController {
     // claim picks the closest matching unclaimed job; subsequent
     // lazy-spawn blocks below cover the case where the prerequisite
     // (water reserve, carried seed) needs to be fetched first.
-    const kinds: JobKind[] = [JOB_KIND_HARVEST_CROP, JOB_KIND_HAUL_WATER, JOB_KIND_HAUL_SEED];
+    const kinds: JobKind[] = [
+      JOB_KIND_HARVEST_CROP,
+      JOB_KIND_HAUL_WATER,
+      JOB_KIND_HAUL_SEED,
+      // Phase 8: production hauling. FEED needs buildingBuffers to be
+      // wired (settler will resolve crate-with-input at claim time);
+      // HAUL_OUTPUT needs the same. Skip both if the service is
+      // missing — keeps headless tests that don't construct buffers
+      // from accidentally claiming them.
+    ];
+    if (services.buildingBuffers) {
+      kinds.push(JOB_KIND_FEED_BUILDING, JOB_KIND_HAUL_OUTPUT);
+    }
     if (v.waterReserve > 0) kinds.push(JOB_KIND_WATER_CROP);
     if (carriedSeedId(v) !== null) kinds.push(JOB_KIND_PLANT_SEED);
 
@@ -413,6 +430,67 @@ export class VillagerJobController {
       // as held so any mid-claim auto-deposit (none today, but the
       // hook is here for future mid-task injection) keeps the seed.
       job.holdItems = [seedId];
+    }
+
+    // FEED_BUILDING claim: source/target are emitted as the building
+    // tile. Resolve to (a) a crate that has the input item and (b) a
+    // standing tile adjacent to the building. If either lookup fails,
+    // release the job — another settler or another tick may succeed
+    // (e.g. once a different settler refills a crate).
+    if (job.kind === JOB_KIND_FEED_BUILDING) {
+      const inputItem = job.payload as ItemId | 0;
+      const buildingPos = { x: job.source.x, y: job.source.y };
+      if (inputItem === 0 || !services.crates || !services.tileWorld) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      const stock = services.crates.nearestContainerWithStock(
+        services.tileWorld,
+        buildingPos.x,
+        buildingPos.y,
+        (id) => id === inputItem,
+      );
+      const buildingStanding = findStanding(services.tileWorld, buildingPos.x, buildingPos.y);
+      if (!stock || !buildingStanding) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      job.source = stock.standing;
+      job.target = buildingStanding;
+      // Stash the building's tile coords in holdItems' sibling slot —
+      // we encode it via setting source/target above; actAtTarget walks
+      // the building tile back from the standing tile via four-neighbour
+      // search (same pattern as crate deposit), so no extra field needed.
+      job.holdItems = [inputItem];
+    }
+
+    // HAUL_OUTPUT claim: pull from a building's output buffer to a
+    // crate that accepts the output item.
+    if (job.kind === JOB_KIND_HAUL_OUTPUT) {
+      const outputItem = job.payload as ItemId | 0;
+      const buildingPos = { x: job.source.x, y: job.source.y };
+      if (outputItem === 0 || !services.crates || !services.tileWorld) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      const dest = services.crates.nearestContainerForDeposit(
+        services.tileWorld,
+        buildingPos.x,
+        buildingPos.y,
+        outputItem,
+      );
+      const buildingStanding = findStanding(services.tileWorld, buildingPos.x, buildingPos.y);
+      if (!dest || !buildingStanding) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      job.source = buildingStanding;
+      job.target = dest.standing;
+      job.holdItems = [outputItem];
     }
 
     // Verify the source tile still matches what was emitted. Player
@@ -670,8 +748,8 @@ export class VillagerJobController {
     this.actAtSourceForJob(job, v, ctx, services);
   }
 
-  // Target-act dispatch. Only HARVEST has a target action today; other
-  // job kinds and deposit tasks return cleanly.
+  // Target-act dispatch. HARVEST + Phase 8 hauling jobs each have a
+  // target action; other job kinds and deposit tasks return cleanly.
   private actAtTarget(
     task: Task,
     v: Villager,
@@ -681,8 +759,19 @@ export class VillagerJobController {
     if (task.kind !== "job") return;
     const job = services.jobs?.get(task.jobId);
     if (!job) return;
-    if (job.kind !== JOB_KIND_HARVEST_CROP) return;
-    this.actAtTargetForHarvest(job, v, ctx, services);
+    switch (job.kind) {
+      case JOB_KIND_HARVEST_CROP:
+        this.actAtTargetForHarvest(job, v, ctx, services);
+        return;
+      case JOB_KIND_FEED_BUILDING:
+        this.actAtTargetForFeedBuilding(job, v, ctx, services);
+        return;
+      case JOB_KIND_HAUL_OUTPUT:
+        this.actAtTargetForHaulOutput(job, v, ctx, services);
+        return;
+      default:
+        return;
+    }
   }
 
   private actAtSourceForJob(
@@ -806,6 +895,65 @@ export class VillagerJobController {
         }
         break;
       }
+      case JOB_KIND_FEED_BUILDING: {
+        // Source is the standing tile next to a crate. Withdraw exactly
+        // one cycle's worth (or whatever fits) of the input item into
+        // carry. The auto-deposit gate exempts this item via holdItems.
+        const inputItem = job.payload as ItemId | 0;
+        if (inputItem === 0 || !services.crates) break;
+        // Find the crate adjacent to the standing tile and pull one
+        // cycle's worth (or all of what's left, whichever is less). The
+        // building's def gives us the cycle quantity — re-read the
+        // building tile from the target side via fourNeighbours.
+        const buildingTile = findBuildingNear(tw, job.target.x, job.target.y);
+        const def = buildingTile ? buildingForTile(buildingTile.tileId) : null;
+        if (!def) break;
+        for (const n of fourNeighbours(job.source.x, job.source.y)) {
+          const t = tw.readTile(n.x, n.y);
+          if (!t) continue;
+          if (!containerForTile(t.tileId)) continue;
+          const taken = services.crates.withdraw(n.x, n.y, inputItem, def.inputQuantity);
+          if (taken > 0) {
+            v.pickup(inputItem, taken);
+            // No memory entry for the pickup — the FED_BUILDING entry
+            // at actAtTarget is the meaningful one. Same convention as
+            // HAUL_SEED's pickup vs PLANTED.
+          }
+          break;
+        }
+        break;
+      }
+      case JOB_KIND_HAUL_OUTPUT: {
+        // Source is the standing tile next to a building. Pull from
+        // the output buffer into carry. The building's tile coords are
+        // resolved via fourNeighbours.
+        const outputItem = job.payload as ItemId | 0;
+        if (outputItem === 0 || !services.buildingBuffers) break;
+        const buildingTile = findBuildingNear(tw, job.source.x, job.source.y);
+        const def = buildingTile ? buildingForTile(buildingTile.tileId) : null;
+        if (!def || !buildingTile) break;
+        // Pull at most one cycle's worth so a single haul doesn't
+        // empty a hot building before another settler can claim a
+        // follow-up HAUL_OUTPUT. Buffer caps prevent unbounded carry.
+        const wanted = Math.max(1, def.outputQuantity);
+        const taken = services.buildingBuffers.consumeOutput(
+          buildingTile.x,
+          buildingTile.y,
+          outputItem,
+          wanted,
+        );
+        if (taken > 0) {
+          v.pickup(outputItem, taken);
+          recordMemory(v, {
+            type: MEMORY_EVENT_TYPES.HAULED_OUTPUT,
+            tick: memTick,
+            subjectId: outputItem,
+            tileX: buildingTile.x,
+            tileY: buildingTile.y,
+          });
+        }
+        break;
+      }
     }
   }
 
@@ -850,6 +998,95 @@ export class VillagerJobController {
         type: MEMORY_EVENT_TYPES.DEPOSITED,
         tick: memTick,
         subjectId: lastItem as number,
+        tileX: cratePos.x,
+        tileY: cratePos.y,
+      });
+    }
+  }
+
+  // FEED_BUILDING target-act: deposit the carried input item into the
+  // adjacent building's input buffer. job.target is the standing tile;
+  // the building tile is one of the four neighbours. If the building
+  // was dismantled mid-trip, the deposit is a no-op and the cargo
+  // stays in carry — the next idle tick will auto-deposit it at a
+  // crate (FEED_BUILDING is no longer in holdItems once the job
+  // completes).
+  private actAtTargetForFeedBuilding(
+    job: Job,
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): void {
+    const tw = services.tileWorld;
+    const buffers = services.buildingBuffers;
+    if (!tw || !buffers) return;
+    const inputItem = job.payload as ItemId | 0;
+    if (inputItem === 0) return;
+    const buildingTile = findBuildingNear(tw, job.target.x, job.target.y);
+    if (!buildingTile) return;
+    const def = buildingForTile(buildingTile.tileId);
+    if (!def) return;
+    const carried = v.carriedItems.get(inputItem) ?? 0;
+    if (carried <= 0) return;
+    const cap = buildingInputCap(def.inputQuantity);
+    const stored = buffers.addInput(buildingTile.x, buildingTile.y, inputItem, carried, cap);
+    if (stored > 0) {
+      v.drop(inputItem, stored);
+      recordMemory(v, {
+        type: MEMORY_EVENT_TYPES.FED_BUILDING,
+        tick: ctx.simTick ?? Math.floor(ctx.time),
+        subjectId: inputItem,
+        tileX: buildingTile.x,
+        tileY: buildingTile.y,
+      });
+    }
+    // If `stored < carried`, the buffer was full mid-deposit — the
+    // remainder stays in carry and the auto-deposit gate (no longer
+    // exempted, since the job's holdItems aged out at completion)
+    // will route it to a crate next idle.
+  }
+
+  // HAUL_OUTPUT target-act: deposit carried output into the adjacent
+  // crate. Symmetric to FEED's input deposit but talks to CrateStore
+  // instead of BuildingBufferStore. Reuses the HARVEST helper's crate-
+  // search pattern (any container that accepts the item, not strictly
+  // CRATE_TILE_ID — a future "warehouse" tile would slot in cleanly).
+  private actAtTargetForHaulOutput(
+    job: Job,
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): void {
+    const tw = services.tileWorld;
+    const crates = services.crates;
+    if (!tw || !crates) return;
+    let cratePos: { x: number; y: number } | null = null;
+    for (const n of fourNeighbours(job.target.x, job.target.y)) {
+      const t = tw.readTile(n.x, n.y);
+      if (!t) continue;
+      const def = containerForTile(t.tileId);
+      if (!def) continue;
+      // Only deposit into containers that accept the item — symmetric
+      // with the claim-time nearestContainerForDeposit choice.
+      const outputItem = job.payload as ItemId | 0;
+      if (outputItem === 0) continue;
+      if (!def.acceptsItem(outputItem)) continue;
+      cratePos = n;
+      break;
+    }
+    if (!cratePos) return;
+    const memTick = ctx.simTick ?? Math.floor(ctx.time);
+    const outputItem = job.payload as ItemId | 0;
+    if (outputItem === 0) return;
+    const carried = v.carriedItems.get(outputItem) ?? 0;
+    if (carried <= 0) return;
+    const stored = crates.deposit(cratePos.x, cratePos.y, outputItem, carried);
+    if (stored > 0) {
+      v.drop(outputItem, stored);
+      recordMemory(v, {
+        type: MEMORY_EVENT_TYPES.DEPOSITED,
+        tick: memTick,
+        subjectId: outputItem,
         tileX: cratePos.x,
         tileY: cratePos.y,
       });
@@ -1001,6 +1238,17 @@ function sourceStillValid(job: Job, services: EntityServices): boolean {
       const t = tw.readTile(job.source.x, job.source.y);
       return t !== null;
     }
+    case JOB_KIND_FEED_BUILDING:
+    case JOB_KIND_HAUL_OUTPUT: {
+      // By the time sourceStillValid runs, the controller's claim-time
+      // resolution has already rewritten job.source from the emitter's
+      // building tile to a walkable standing tile (next to a crate for
+      // FEED, next to the building for HAUL_OUTPUT). Walkability is
+      // the only invariant left to check; the act step re-derives
+      // crate / building / buffer state from the live world.
+      const t = tw.readTile(job.source.x, job.source.y);
+      return t !== null;
+    }
   }
 }
 
@@ -1081,4 +1329,42 @@ function hasUnclaimedPlantJob(board: import("../jobs").JobBoard): boolean {
     if (j.claimedBy === 0 && j.kind === JOB_KIND_PLANT_SEED) return true;
   }
   return false;
+}
+
+// Find a walkable neighbour of (x, y) — used for resolving the
+// standing tile when claiming FEED_BUILDING / HAUL_OUTPUT jobs.
+// Returns null when all four neighbours are blocked (or the chunk
+// hasn't loaded). Order is fixed (E, W, S, N) so the same setup
+// always picks the same standing tile, keeping replays deterministic.
+function findStanding(
+  tw: import("./entity").TileWorldAccess,
+  x: number,
+  y: number,
+): { x: number; y: number } | null {
+  for (const n of fourNeighbours(x, y)) {
+    const t = tw.readTile(n.x, n.y);
+    if (!t) continue;
+    if (!isEntityWalkable(t.tileId)) continue;
+    return n;
+  }
+  return null;
+}
+
+// Find an active (non-passive) building tile in the four neighbours of
+// (x, y). Used by FEED_BUILDING / HAUL_OUTPUT actAt* to recover the
+// building tile from a standing tile on the fly. Returns null if no
+// neighbour holds a non-passive building.
+function findBuildingNear(
+  tw: import("./entity").TileWorldAccess,
+  x: number,
+  y: number,
+): { x: number; y: number; tileId: number } | null {
+  for (const n of fourNeighbours(x, y)) {
+    const t = tw.readTile(n.x, n.y);
+    if (!t) continue;
+    const def = buildingForTile(t.tileId);
+    if (!def || def.passive) continue;
+    return { x: n.x, y: n.y, tileId: t.tileId };
+  }
+  return null;
 }

@@ -19,7 +19,9 @@ import {
 import { Villager } from "../state/entities/villager";
 import { ITEM_DEFS } from "../state/items";
 import {
+  JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
+  JOB_KIND_HAUL_OUTPUT,
   JOB_KIND_HAUL_SEED,
   JOB_KIND_HAUL_WATER,
   JOB_KIND_PLANT_SEED,
@@ -221,6 +223,10 @@ export function jobKindLabel(kind: JobKind): string {
       return "Plant seed";
     case JOB_KIND_HAUL_SEED:
       return "Haul seed";
+    case JOB_KIND_FEED_BUILDING:
+      return "Feed building";
+    case JOB_KIND_HAUL_OUTPUT:
+      return "Haul output";
   }
 }
 

@@ -180,6 +180,29 @@ See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
 
 ---
 
+## Phase 8 — Production Hauling
+
+**Goal:** Settlers run the production chain end-to-end. They haul wheat from a crate to a Mill, the Mill produces flour into its own output buffer, and a settler hauls that flour to a destination crate (or to the Bakery, whose output another settler hauls onward). The player no longer has to manually feed buildings.
+
+**Duration:** ~3–5 days (shipped)
+
+### Deliverables
+
+- `BuildingBufferStore` — sparse per-building input + output buffers, mirroring `CrateStore`'s shape
+- Main-thread `autoQueueFromBuffers` tick: drains input buffer → `metadata.queued` so the sim worker stays unchanged
+- `ProductionEvent` handler redirected: output goes to the building's output buffer, not the player's inventory (back-pressure halts production when full)
+- Two new job kinds: `FEED_BUILDING` (kind 6), `HAUL_OUTPUT` (kind 7)
+- `JobEmitter` extended: emits `FEED_BUILDING` when input < 50% of cap, `HAUL_OUTPUT` when output buffer non-empty
+- Settler controller wires both kinds: claim-time source/target resolution (mirroring HARVEST_CROP), `actAtSource` + `actAtTarget` cases, two new memory event types (`FED_BUILDING`, `HAULED_OUTPUT`)
+- Building window UI: status (cycle / queued / buffer levels), manual deposit input, manual withdraw output — keeps the no-settlers play path working
+- `SAVE_VERSION 9 → 10` with the new buffer snapshot
+
+### Exit Criteria
+
+> Place a Mill near a wheat-stocked crate and an empty crate. Spawn a settler. Without any player input, watch the settler haul wheat → mill → cycle → flour → second crate. Repeat with Mill → Bakery → bread → crate to verify the multi-building chain. With no settlers, the building window's manual deposit/withdraw buttons keep production runnable.
+
+---
+
 ## Phase 7.5 — Weighted Carry & Task Injection
 
 **Goal:** Make settler inventories physical (weight, not count) and give the controller a generic mechanism for "do X before Y" sub-tasks. The first consumer is auto-deposit when overweight; future consumers are mid-job interrupts (eat, sleep, take shelter) and Phase 8 production hauling.
@@ -215,6 +238,7 @@ See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
 | 6     | ~2 weeks   | Possession + avatar control            |
 | 7     | ~2 weeks   | Autonomous settlers + pathfinding      |
 | 7.5   | ~3 days    | Weighted carry + task injection        |
+| 8     | ~3–5 days  | Settler-driven production hauling      |
 
 ---
 
