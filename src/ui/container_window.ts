@@ -106,7 +106,9 @@ export function createContainerWindow(deps: ContainerWindowDeps): ContainerWindo
       const count = deps.crates.countAt(target.x, target.y, id);
       if (count <= 0) continue;
       any = true;
-      contentsEl.appendChild(buildRow(id, count, "withdraw", target, deps, () => activeInventory, render));
+      contentsEl.appendChild(
+        buildRow(id, count, "withdraw", target, deps, () => activeInventory, render),
+      );
     }
     if (!any) {
       contentsEl.innerHTML = `<div class="ss-empty">empty</div>`;
@@ -122,7 +124,9 @@ export function createContainerWindow(deps: ContainerWindowDeps): ContainerWindo
       const count = activeInventory.count(id);
       if (count <= 0) continue;
       anyDepositable = true;
-      inventoryEl.appendChild(buildRow(id, count, "deposit", target, deps, () => activeInventory, render));
+      inventoryEl.appendChild(
+        buildRow(id, count, "deposit", target, deps, () => activeInventory, render),
+      );
     }
     if (!anyDepositable) {
       inventoryEl.innerHTML = `<div class="ss-empty">no acceptable items in inventory</div>`;
@@ -136,9 +140,10 @@ export function createContainerWindow(deps: ContainerWindowDeps): ContainerWindo
 
   const wireInventorySubscription = (): void => {
     unsubscribeInventory?.();
-    unsubscribeInventory = activeInventory.subscribe?.(() => {
-      if (target && window_.isOpen()) render();
-    }) ?? null;
+    unsubscribeInventory =
+      activeInventory.subscribe?.(() => {
+        if (target && window_.isOpen()) render();
+      }) ?? null;
   };
   wireInventorySubscription();
 

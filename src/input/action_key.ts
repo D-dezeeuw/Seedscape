@@ -17,11 +17,8 @@
 import type { EntityServices } from "../state/entities/entity";
 import { LivingEntity } from "../state/entities/living_entity";
 import { Villager } from "../state/entities/villager";
-import {
-  executePossessedAction,
-  resolvePossessedAction,
-} from "../state/possession_actions";
 import type { PossessionController } from "../state/possession";
+import { executePossessedAction, resolvePossessedAction } from "../state/possession_actions";
 
 const ACTION_KEYS = new Set(["e", "E"]);
 

@@ -1,6 +1,6 @@
 import { createGLContext, resizeCanvasToDisplaySize, WebGL2UnsupportedError } from "./core/canvas";
 import { createFpsOverlay } from "./core/fps";
-import { attachActionKey } from "./input/action_key";
+import { attachActionKey, runContextualAction } from "./input/action_key";
 import { Camera } from "./input/camera";
 import { attachCameraControls } from "./input/camera_controls";
 import { attachInputRouter, InputRouter } from "./input/input_router";
@@ -15,15 +15,16 @@ import { LivingEntity } from "./state/entities/living_entity";
 import { spawnInitialEntities } from "./state/entities/spawn";
 import { Villager } from "./state/entities/villager";
 import { Inventory } from "./state/inventory";
+import { asPlayerInventoryLike, asSettlerInventoryLike } from "./state/inventory_like";
 import { ITEM_IDS, type ItemId } from "./state/items";
 import { JobEmitter } from "./state/job_emitter";
 import { JobBoard } from "./state/jobs";
 import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
+import { isActionable, resolvePossessedAction } from "./state/possession_actions";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
-import { asPlayerInventoryLike, asSettlerInventoryLike } from "./state/inventory_like";
 import { createBuildingWindow } from "./ui/building_window";
 import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
@@ -33,6 +34,7 @@ import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
 import { createPersonWindow } from "./ui/person_window";
+import { createPossessionActionBar } from "./ui/possession_action_bar";
 import { createSettingsPanel } from "./ui/settings_panel";
 import { createSettlersWindow } from "./ui/settlers_window";
 import { createShopMenu } from "./ui/shop_menu";
@@ -394,7 +396,7 @@ async function bootstrap(): Promise<void> {
     { id: "settings", label: "Settings", window: settingsWindow },
   ];
 
-  const detachToolbar = createToolbar({
+  const toolbar = createToolbar({
     parent: document.body,
     tool,
     windows: toolbarWindows,
@@ -656,17 +658,37 @@ async function bootstrap(): Promise<void> {
   // resolver. Window-open results are dispatched to the existing
   // container/building windows; the container window flips to the
   // settler's inventory view via setInventory before opening.
-  const detachActionKey = attachActionKey({
+  const actionKeyDeps = {
     possession,
     services: entityServices,
     getSimTick: () => tick,
-    openContainer: (x, y, settler) => {
+    openContainer: (x: number, y: number, settler: Villager) => {
       containerWindow.setInventory(asSettlerInventoryLike(settler));
       containerWindow.showFor(x, y);
     },
-    openBuilding: (x, y) => {
+    openBuilding: (x: number, y: number) => {
       buildingWindow.showFor(x, y);
     },
+  };
+  const detachActionKey = attachActionKey(actionKeyDeps);
+
+  // Phase 9: contextual action bar — bottom-centre button shown only
+  // while possessing. The button click dispatches the same code path
+  // as pressing E (runContextualAction).
+  const possessionBar = createPossessionActionBar({
+    parent: document.body,
+    onActivate: () => {
+      const ent = possession.entity;
+      if (ent instanceof Villager) runContextualAction(ent, actionKeyDeps);
+    },
+  });
+  // Visibility tracks possession state; toolbar action row hides
+  // simultaneously so the player only sees one action surface at a
+  // time.
+  possession.subscribe((snap) => {
+    const possessing = snap.mode === "possess";
+    possessionBar.setVisible(possessing);
+    toolbar.setActionRowVisible(!possessing);
   });
 
   // Walkability lookup used by entity AI. Returns false if the chunk
@@ -772,6 +794,26 @@ async function bootstrap(): Promise<void> {
       canvas.clientHeight,
       TILE_WORLD_SIZE,
     );
+    // Phase 9: while possessing, run the resolver against the faced
+    // tile each frame. Cheap — one tile read + a few branches —
+    // and drives both the reticle's actionable state (yellow vs
+    // grey) and the bottom action bar's label.
+    {
+      const ent = possession.entity;
+      if (possession.isPossessing() && ent instanceof Villager) {
+        const target = ent.facedTile();
+        const tile = entityServices.tileWorld?.readTile(target.x, target.y);
+        const action = resolvePossessedAction(
+          ent,
+          tile ? { x: target.x, y: target.y, ...tile } : null,
+          entityServices,
+        );
+        facedReticle.setActionable(isActionable(action));
+        possessionBar.render(action);
+      } else {
+        facedReticle.setActionable(false);
+      }
+    }
 
     overlay.tick(timestampMs);
     requestAnimationFrame(frame);
@@ -793,7 +835,8 @@ async function bootstrap(): Promise<void> {
       detachInteraction();
       detachHud();
       detachInfo();
-      detachToolbar();
+      toolbar.destroy();
+      possessionBar.destroy();
       detachDebugButton();
       personWindow.destroy();
       inventoryWindow.destroy();

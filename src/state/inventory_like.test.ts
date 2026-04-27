@@ -36,7 +36,10 @@ describe("asPlayerInventoryLike", () => {
 
 describe("asSettlerInventoryLike", () => {
   test("add clamps by carry weight (Phase 7.5)", () => {
-    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
     const view = asSettlerInventoryLike(v);
 
     // Wheat is 10/unit, default cap 100 → only 10 fit even though we
@@ -46,7 +49,10 @@ describe("asSettlerInventoryLike", () => {
   });
 
   test("remove clamps to available stock", () => {
-    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
     const view = asSettlerInventoryLike(v);
     view.add(ITEM_IDS.WHEAT, 4);
     expect(view.remove(ITEM_IDS.WHEAT, 100)).toBe(4);
@@ -54,7 +60,10 @@ describe("asSettlerInventoryLike", () => {
   });
 
   test("entries reflects carriedItems Map", () => {
-    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
     const view = asSettlerInventoryLike(v);
     view.add(ITEM_IDS.WHEAT_SEED, 3);
     const seen = Array.from(view.entries());
@@ -62,7 +71,10 @@ describe("asSettlerInventoryLike", () => {
   });
 
   test("no subscribe — settler relies on caller polling", () => {
-    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", { x: 0, y: 0 });
+    const v = new Villager(1, { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 }, "T", {
+      x: 0,
+      y: 0,
+    });
     const view = asSettlerInventoryLike(v);
     expect(view.subscribe).toBeUndefined();
   });

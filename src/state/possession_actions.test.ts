@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { allocChunkData, type ChunkRecord, tileIndex } from "../world/chunk";
 import { chunkKey } from "../world/coords";
-import { harvestTile, plantSeed, setWaterLevel, tillTile, waterTile } from "../world/farming/tile_actions";
+import {
+  harvestTile,
+  plantSeed,
+  setWaterLevel,
+  tillTile,
+  waterTile,
+} from "../world/farming/tile_actions";
 import type { EntityServices, TileWorldAccess } from "./entities/entity";
 import { Villager } from "./entities/villager";
 import { ITEM_IDS, type ItemId } from "./items";
@@ -9,8 +15,8 @@ import {
   executePossessedAction,
   isActionable,
   type PossessedAction,
-  resolvePossessedAction,
   type ResolverTile,
+  resolvePossessedAction,
 } from "./possession_actions";
 
 const TILE_DRY_GRASS = 10;
@@ -26,7 +32,13 @@ function makeVillager(): Villager {
 }
 
 function tile(partial: Partial<ResolverTile> & { tileId: number }): ResolverTile {
-  return { x: partial.x ?? 5, y: partial.y ?? 5, tileId: partial.tileId, state: partial.state ?? 0, metadata: partial.metadata ?? 0 };
+  return {
+    x: partial.x ?? 5,
+    y: partial.y ?? 5,
+    tileId: partial.tileId,
+    state: partial.state ?? 0,
+    metadata: partial.metadata ?? 0,
+  };
 }
 
 const NO_SERVICES: EntityServices = {};
@@ -43,23 +55,35 @@ describe("resolvePossessedAction", () => {
 
   test("crate → open_container", () => {
     const v = makeVillager();
-    expectKind(resolvePossessedAction(v, tile({ tileId: CRATE_TILE }), NO_SERVICES), "open_container");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: CRATE_TILE }), NO_SERVICES),
+      "open_container",
+    );
   });
 
   test("seed dispenser → open_container (passive route, not building)", () => {
     const v = makeVillager();
-    expectKind(resolvePossessedAction(v, tile({ tileId: SEED_DISPENSER }), NO_SERVICES), "open_container");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: SEED_DISPENSER }), NO_SERVICES),
+      "open_container",
+    );
   });
 
   test("active building (mill) → open_building", () => {
     const v = makeVillager();
-    expectKind(resolvePossessedAction(v, tile({ tileId: MILL_TILE }), NO_SERVICES), "open_building");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: MILL_TILE }), NO_SERVICES),
+      "open_building",
+    );
   });
 
   test("shallow water → haul_water (when reserve below max)", () => {
     const v = makeVillager();
     v.waterReserve = 2;
-    expectKind(resolvePossessedAction(v, tile({ tileId: SHALLOW_WATER }), NO_SERVICES), "haul_water");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: SHALLOW_WATER }), NO_SERVICES),
+      "haul_water",
+    );
   });
 
   test("shallow water with full reserve → none", () => {
@@ -70,7 +94,10 @@ describe("resolvePossessedAction", () => {
 
   test("ripe wheat → harvest_crop", () => {
     const v = makeVillager();
-    expectKind(resolvePossessedAction(v, tile({ tileId: WHEAT_BASE, state: 7 }), NO_SERVICES), "harvest_crop");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: WHEAT_BASE, state: 7 }), NO_SERVICES),
+      "harvest_crop",
+    );
   });
 
   test("thirsty growing wheat with reserve → water_crop", () => {
@@ -97,12 +124,19 @@ describe("resolvePossessedAction", () => {
   test("empty tilled tile + carrying seed → plant_seed", () => {
     const v = makeVillager();
     v.pickup(ITEM_IDS.WHEAT_SEED, 1);
-    expectKind(resolvePossessedAction(v, tile({ tileId: TILE_FARMLAND_TILLED, state: 0 }), NO_SERVICES), "plant_seed");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: TILE_FARMLAND_TILLED, state: 0 }), NO_SERVICES),
+      "plant_seed",
+    );
   });
 
   test("empty tilled tile + no seed → blocked: need_seed", () => {
     const v = makeVillager();
-    const action = resolvePossessedAction(v, tile({ tileId: TILE_FARMLAND_TILLED, state: 0 }), NO_SERVICES);
+    const action = resolvePossessedAction(
+      v,
+      tile({ tileId: TILE_FARMLAND_TILLED, state: 0 }),
+      NO_SERVICES,
+    );
     expect(action).toEqual({ kind: "blocked", reason: "need_seed" });
   });
 
@@ -113,7 +147,10 @@ describe("resolvePossessedAction", () => {
 
   test("wilted crop → none (not actionable)", () => {
     const v = makeVillager();
-    expectKind(resolvePossessedAction(v, tile({ tileId: WHEAT_BASE, state: 255 }), NO_SERVICES), "none");
+    expectKind(
+      resolvePossessedAction(v, tile({ tileId: WHEAT_BASE, state: 255 }), NO_SERVICES),
+      "none",
+    );
   });
 });
 
@@ -137,11 +174,17 @@ function makeStubWorld(): { tw: TileWorldAccess; data: ReturnType<typeof allocCh
   const tw: TileWorldAccess = {
     readTile(wx, wy) {
       const i = tileIndex(wx, wy);
-      return { tileId: data.tileId[i] ?? 0, state: data.state[i] ?? 0, metadata: data.metadata[i] ?? 0 };
+      return {
+        tileId: data.tileId[i] ?? 0,
+        state: data.state[i] ?? 0,
+        metadata: data.metadata[i] ?? 0,
+      };
     },
     harvestAt(wx, wy) {
       const r = harvestTile(data, wx, wy);
-      const out: { applied: boolean; produceItem?: number; yield?: number } = { applied: r.applied };
+      const out: { applied: boolean; produceItem?: number; yield?: number } = {
+        applied: r.applied,
+      };
       if (r.produceItem !== undefined) out.produceItem = r.produceItem;
       if (r.yield !== undefined) out.yield = r.yield;
       return out;
@@ -258,8 +301,8 @@ describe("executePossessedAction", () => {
   test("blocked / none → noop", () => {
     const v = makeVillager();
     expect(executePossessedAction(v, { kind: "none" }, {}, 0)).toEqual({ kind: "noop" });
-    expect(
-      executePossessedAction(v, { kind: "blocked", reason: "need_seed" }, {}, 0),
-    ).toEqual({ kind: "noop" });
+    expect(executePossessedAction(v, { kind: "blocked", reason: "need_seed" }, {}, 0)).toEqual({
+      kind: "noop",
+    });
   });
 });

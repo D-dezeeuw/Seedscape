@@ -31,9 +31,7 @@ export interface PossessionActionBarDeps {
   onActivate: () => void;
 }
 
-export function createPossessionActionBar(
-  deps: PossessionActionBarDeps,
-): PossessionActionBarApi {
+export function createPossessionActionBar(deps: PossessionActionBarDeps): PossessionActionBarApi {
   const bar = document.createElement("div");
   bar.className = "ss-possession-bar";
   bar.style.display = "none";

@@ -12,7 +12,11 @@
 
 import { buildingForTile } from "../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../world/farming/container_registry";
-import { CROP_STAGE_HARVESTABLE, CROP_STATE_WILTED, cropForTile } from "../world/farming/crop_registry";
+import {
+  CROP_STAGE_HARVESTABLE,
+  CROP_STATE_WILTED,
+  cropForTile,
+} from "../world/farming/crop_registry";
 import { getWaterLevel } from "../world/farming/tile_actions";
 import { isWaterSource } from "../world/walkability";
 import type { EntityServices } from "./entities/entity";
@@ -197,13 +201,7 @@ export function executePossessedAction(
       if (!result.applied) return { kind: "noop" };
       if (result.produceItem != null && result.yield != null) {
         villager.pickup(result.produceItem as ItemId, result.yield);
-        recordMemoryHere(
-          villager,
-          "HARVESTED",
-          result.produceItem,
-          action.tile,
-          simTick,
-        );
+        recordMemoryHere(villager, "HARVESTED", result.produceItem, action.tile, simTick);
       }
       return { kind: "ok" };
     }
@@ -236,7 +234,13 @@ export function executePossessedAction(
 // settler just performed. Same shape as the autonomous job paths
 // use, so the Person window's history doesn't distinguish between
 // "settler did this on its own" and "player drove this".
-type MemoryKind = "HARVESTED" | "PLANTED" | "WATERED" | "HAULED_WATER" | "HAULED_SEED" | "DEPOSITED";
+type MemoryKind =
+  | "HARVESTED"
+  | "PLANTED"
+  | "WATERED"
+  | "HAULED_WATER"
+  | "HAULED_SEED"
+  | "DEPOSITED";
 function recordMemoryHere(
   v: Villager,
   kind: MemoryKind,
