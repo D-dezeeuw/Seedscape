@@ -347,11 +347,18 @@ async function bootstrap(): Promise<void> {
     isPossessing: () => possession.isPossessing(),
   });
 
-  const detachHud = createHud(document.body, player);
+  // Top-left stack — HUD on top, tile-info below it. Shared parent
+  // so they flow vertically instead of pinning each panel to its
+  // own viewport corner; see .ss-stack-topleft in styles.
+  const topLeftStack = document.createElement("div");
+  topLeftStack.className = "ss-stack-topleft";
+  document.body.appendChild(topLeftStack);
+
+  const detachHud = createHud(topLeftStack, player);
   const entityLabels = new EntityLabels(document.body);
   const facedReticle = new FacedTileReticle(document.body);
   const detachInfo = createTileInfo({
-    parent: document.body,
+    parent: topLeftStack,
     canvas,
     camera,
     chunkManager,
@@ -682,13 +689,14 @@ async function bootstrap(): Promise<void> {
       if (ent instanceof Villager) runContextualAction(ent, actionKeyDeps);
     },
   });
-  // Visibility tracks possession state; toolbar action row hides
-  // simultaneously so the player only sees one action surface at a
-  // time.
+  // Visibility tracks possession state. The whole toolbar hides
+  // (not just the action row) — the contextual action panel takes
+  // over the bottom of the screen, and god-mode window-openers
+  // aren't relevant while driving an avatar.
   possession.subscribe((snap) => {
     const possessing = snap.mode === "possess";
     possessionBar.setVisible(possessing);
-    toolbar.setActionRowVisible(!possessing);
+    toolbar.setVisible(!possessing);
   });
 
   // Walkability lookup used by entity AI. Returns false if the chunk
@@ -835,6 +843,7 @@ async function bootstrap(): Promise<void> {
       detachInteraction();
       detachHud();
       detachInfo();
+      topLeftStack.remove();
       toolbar.destroy();
       possessionBar.destroy();
       detachDebugButton();

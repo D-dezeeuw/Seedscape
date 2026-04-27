@@ -5,18 +5,18 @@
 // Single-window-at-a-time: opening a window auto-closes any other open one.
 // ESC closes whichever window is open.
 //
-// Phase 9: the action row hides while the player is possessing a
-// settler — its tool semantics ("god-mode click on a tile applies
-// this tool") don't apply when the avatar is driving via the
-// contextual action bar. The window row stays visible either way so
-// the player can still pop the Settlers panel etc. mid-possession.
+// Possession (Phase 9 follow-up): the entire toolbar hides while the
+// player is possessing — the contextual action panel takes over the
+// bottom of the screen, and god-mode windows aren't relevant while
+// driving an avatar. ESC out of possession to get the toolbar back.
 
 import { TOOL_LABELS, type Tool, type ToolState } from "../input/tool";
 import type { UiWindow } from "./window";
 
 export interface ToolbarApi {
-  // Toggle the action (tools) row. Window-openers row stays visible.
-  setActionRowVisible(visible: boolean): void;
+  // Show / hide the entire toolbar. Driven by possession state in
+  // main.ts — visible in god mode, hidden when driving a settler.
+  setVisible(visible: boolean): void;
   // Tear down all listeners and remove the toolbar from the DOM.
   destroy(): void;
 }
@@ -124,8 +124,8 @@ export function createToolbar(deps: ToolbarDeps): ToolbarApi {
   deps.parent.appendChild(stack);
 
   return {
-    setActionRowVisible(visible: boolean) {
-      actionRow.style.display = visible ? "" : "none";
+    setVisible(visible: boolean) {
+      stack.style.display = visible ? "" : "none";
     },
     destroy() {
       for (const c of cleanups) c();

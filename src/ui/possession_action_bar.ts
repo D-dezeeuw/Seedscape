@@ -33,9 +33,13 @@ export interface PossessionActionBarDeps {
 
 export function createPossessionActionBar(deps: PossessionActionBarDeps): PossessionActionBarApi {
   const bar = document.createElement("div");
-  bar.className = "ss-possession-bar";
+  // ss-panel for the consistent panel styling (dark background,
+  // rounded corners, blur, h3); ss-possession-bar pins it to the
+  // bottom-centre and tunes the layout for a single-action surface.
+  bar.className = "ss-panel ss-possession-bar";
   bar.style.display = "none";
   bar.innerHTML = `
+    <h3>Action</h3>
     <button class="ss-btn ss-possession-action" data-act="primary">
       <span class="ss-key-hint">E</span>
       <span class="ss-action-label" data-field="label">No action</span>
