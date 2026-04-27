@@ -543,12 +543,10 @@ describe("VillagerJobController integration", () => {
 
     const { services, board, client } = makeServices(world);
     await flush();
-    const v = new Villager(
-      77,
-      { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
-      "Z",
-      { x: 1, y: 1 },
-    );
+    const v = new Villager(77, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, "Z", {
+      x: 1,
+      y: 1,
+    });
 
     board.enqueue({
       kind: 3, // HARVEST_CROP

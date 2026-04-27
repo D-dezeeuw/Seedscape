@@ -78,8 +78,7 @@ export const MEMORY_EVENT_TYPES = {
   HAULED_SEED: 5,
   DEPOSITED: 6,
 } as const;
-export type MemoryEventType =
-  (typeof MEMORY_EVENT_TYPES)[keyof typeof MEMORY_EVENT_TYPES];
+export type MemoryEventType = (typeof MEMORY_EVENT_TYPES)[keyof typeof MEMORY_EVENT_TYPES];
 
 export interface MemoryEvent {
   type: number; // event type enum (0 = empty)
@@ -146,17 +145,15 @@ export abstract class LivingEntity extends Entity {
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
     this.needs = makeFullNeeds();
-    this.shortTermMemory = new Array(SHORT_TERM_CAPACITY)
-      .fill(null)
-      .map(() => ({
-        type: 0,
-        tick: 0,
-        subjectId: 0,
-        moodDelta: 0,
-        weight: 0,
-        tileX: 0,
-        tileY: 0,
-      }));
+    this.shortTermMemory = new Array(SHORT_TERM_CAPACITY).fill(null).map(() => ({
+      type: 0,
+      tick: 0,
+      subjectId: 0,
+      moodDelta: 0,
+      weight: 0,
+      tileX: 0,
+      tileY: 0,
+    }));
     this.shortTermHead = 0;
     this.longTermMemory = [];
     this.traits = 0;

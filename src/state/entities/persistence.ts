@@ -30,9 +30,14 @@ export interface SavedEntity {
     gender: string;
     homeWorldTileX: number;
     homeWorldTileY: number;
-    // Phase 7: settler reserves + carried items survive save/load. Job state
-    // (claim, current waypoint) does not — settlers re-enter idle on load
-    // and the emitter rebuilds the board on the first tick.
+    // Phase 7: settler reserves + carried items survive save/load. Job
+    // state (claim, current waypoint) and the task stack do NOT —
+    // settlers re-enter idle on load, the emitter rebuilds the board on
+    // the first tick, and any overweight settler auto-injects a fresh
+    // deposit task. This is also why no SAVE_VERSION bump was needed
+    // when the weight system landed: carriedItems shape is unchanged,
+    // and an old save's counts that now exceed the weight cap are
+    // resolved by the next idle tick rather than a load-time migration.
     waterReserve: number;
     carriedItems: { [itemId: number]: number };
   };

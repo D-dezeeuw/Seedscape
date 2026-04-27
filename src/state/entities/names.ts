@@ -7,11 +7,11 @@
 // short lists below — those domains aren't human-named in MVP and a
 // 10-entry pool is plenty.
 
-import { mulberry32 } from "../../shared/rng";
-import type { EntityType } from "./entity";
 // Imported as a typed JSON module (resolveJsonModule). Vite copies the
 // file into the bundle at build time; no runtime fetch required.
 import namesData from "../../../data/names.json";
+import { mulberry32 } from "../../shared/rng";
+import type { EntityType } from "./entity";
 
 // Per-villager gender. Drawn from the name entry's tag in data/names.json
 // so a settler named "Maria" reads as female without needing a separate

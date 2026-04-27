@@ -50,9 +50,30 @@ const RAW: ReadonlyArray<ItemDef> = [
   // Seeds are pocket-light: a settler can hold dozens before the cap matters.
   // Marked sticky so they're never auto-deposited — the next PLANT_SEED job
   // is more useful than a tidy crate.
-  { id: ITEM_IDS.WHEAT_SEED, name: "wheat_seed", displayName: "Wheat Seeds", basePrice: 1, weight: 1, defaultSticky: true },
-  { id: ITEM_IDS.CARROT_SEED, name: "carrot_seed", displayName: "Carrot Seeds", basePrice: 2, weight: 1, defaultSticky: true },
-  { id: ITEM_IDS.CORN_SEED, name: "corn_seed", displayName: "Corn Seeds", basePrice: 2, weight: 1, defaultSticky: true },
+  {
+    id: ITEM_IDS.WHEAT_SEED,
+    name: "wheat_seed",
+    displayName: "Wheat Seeds",
+    basePrice: 1,
+    weight: 1,
+    defaultSticky: true,
+  },
+  {
+    id: ITEM_IDS.CARROT_SEED,
+    name: "carrot_seed",
+    displayName: "Carrot Seeds",
+    basePrice: 2,
+    weight: 1,
+    defaultSticky: true,
+  },
+  {
+    id: ITEM_IDS.CORN_SEED,
+    name: "corn_seed",
+    displayName: "Corn Seeds",
+    basePrice: 2,
+    weight: 1,
+    defaultSticky: true,
+  },
   // Raw produce is the bulk of farm hauling; bands chosen so a default
   // cap of 100 maps to "≈10 wheat / 8 corn / 12 carrots" — enough for one
   // round trip per harvest.

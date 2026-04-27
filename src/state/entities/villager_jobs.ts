@@ -29,7 +29,7 @@ import {
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
 import { isWaterSource } from "../../world/walkability";
-import { isItemDefaultSticky, type ItemId } from "../items";
+import { type ItemId, isItemDefaultSticky } from "../items";
 import {
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_SEED,
@@ -275,7 +275,12 @@ export class VillagerJobController {
     // things in the bag are sticky (seeds today; Job.holdItems in the
     // next commit will generalise this). The injection is one task at
     // a time — after deposit pops, the next idle tick will re-evaluate.
-    if (v.isOverweight() && hasDumpableItems(v, services) && services.crates && services.tileWorld) {
+    if (
+      v.isOverweight() &&
+      hasDumpableItems(v, services) &&
+      services.crates &&
+      services.tileWorld
+    ) {
       const target = pickDepositTarget(v, services, fromX, fromY);
       if (target) {
         this.pushTask({
@@ -428,11 +433,7 @@ export class VillagerJobController {
   // task's source coords and kicks off the path request. Returns true
   // (we handled the tick) unless the task can't be resolved, in which
   // case we pop and try again next tick.
-  private startActiveTask(
-    v: Villager,
-    ctx: EntityTickContext,
-    services: EntityServices,
-  ): boolean {
+  private startActiveTask(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
     const task = this.activeTask();
     if (!task) return false;
     const src = taskSource(task, services);
@@ -572,7 +573,8 @@ export class VillagerJobController {
       const phase = this.state.phase;
       const task = this.activeTask();
       if (task) {
-        const goal = phase === "to_source" ? taskSource(task, services) : taskTarget(task, services);
+        const goal =
+          phase === "to_source" ? taskSource(task, services) : taskTarget(task, services);
         if (goal) {
           this.hasReplanned = true;
           this.requestPath(v, ctx, services, phase, goal);
@@ -859,7 +861,11 @@ export class VillagerJobController {
   // of from a Job. Skips items the parent task wants to keep
   // (Job.holdItems will land in the next commit).
   private depositAll(
-    task: { kind: "deposit"; standingTile: { x: number; y: number }; cratePos: { x: number; y: number } },
+    task: {
+      kind: "deposit";
+      standingTile: { x: number; y: number };
+      cratePos: { x: number; y: number };
+    },
     v: Villager,
     ctx: EntityTickContext,
     services: EntityServices,
