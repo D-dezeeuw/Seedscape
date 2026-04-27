@@ -1,12 +1,20 @@
-// Settler job state machine. Owns one Villager's autonomy: claim a job,
-// request a path to its source, walk the path, act, optionally walk to a
-// target (crate for HARVEST), act again, complete. On failure (path not
-// found, source vanished mid-flight, stuck for too long) the controller
-// cancels the job so another settler can pick it up later.
+// Settler job state machine. Owns one Villager's autonomy.
 //
-// Path requests are async. The controller stores them with a request ID;
-// when the promise resolves, the .then handler updates the controller's
-// state (only if the request is still the one the settler is waiting for).
+// Tasks (Phase 7.5+) are a stack: every active piece of work — a job
+// claimed from the board, or an injected sub-task like "deposit my
+// inventory before doing anything else" — pushes a Task. The TOP of
+// the stack is what the settler is currently doing; popping returns
+// to the suspended caller.
+//
+// Today only two kinds of tasks exist: `job` (a claim from JobBoard,
+// dispatch by job.kind) and `deposit` (drop carried items at a crate
+// before claiming a new job). The architecture allows future tasks
+// like `eat` or `sleep` to slot in without changing the state machine.
+//
+// The path state machine (idle → requesting_path → walking → acting →
+// idle) drives the *active* task — once it pops, the next tick starts
+// the next task at idle. Single-task LIFO, no concurrency. Path
+// requests are async; nonces let stale replies be discarded.
 //
 // The controller is intentionally keyed off the Villager — it does not
 // reach into other entities or globals. Tests construct a Villager + a
@@ -74,12 +82,24 @@ const STUCK_TIMEOUT_SEC = 6.0;
 
 type Phase = "to_source" | "to_target";
 
+// Discriminated task union. `job` resolves source/target/acts via the
+// JobBoard entry; `deposit` carries its own coords because no board
+// entry exists for it (it's an internal subtask).
+type Task =
+  | { kind: "job"; jobId: number }
+  | {
+      kind: "deposit";
+      // Walkable tile adjacent to the crate. The settler stops here.
+      standingTile: { x: number; y: number };
+      // The crate tile itself — used for the deposit() call. Never walked onto.
+      cratePos: { x: number; y: number };
+    };
+
 type ControllerState =
   | { kind: "idle" }
-  | { kind: "requesting_path"; jobId: number; phase: Phase; requestNonce: number }
+  | { kind: "requesting_path"; phase: Phase; requestNonce: number }
   | {
       kind: "walking";
-      jobId: number;
       phase: Phase;
       // Waypoints stored flat: x0,y0,x1,y1,...
       waypoints: Int16Array;
@@ -87,28 +107,40 @@ type ControllerState =
       // Last time we advanced a waypoint. If now - lastAdvance > timeout, give up.
       lastAdvanceTime: number;
     }
-  | { kind: "acting"; jobId: number; phase: Phase; until: number }
+  | { kind: "acting"; phase: Phase; until: number }
   | { kind: "no_op" };
 
 export class VillagerJobController {
+  // Stack of pending tasks. Top (last element) is the active task; idle
+  // means the stack is empty. Mid-task injection pushes a new task on
+  // top; completion pops. LIFO — the *most recently injected* task
+  // takes priority, which matches "drop everything and deposit before
+  // doing anything else".
+  private taskStack: Task[] = [];
   private state: ControllerState = { kind: "idle" };
   // Monotonic request id so async path replies that arrive after a
-  // re-plan or job cancel can be discarded.
+  // re-plan or task pop can be discarded.
   private nextNonce = 1;
   // Earliest time tickIdle is allowed to ask the board for work. Set by
   // the spawn-burst stagger (once, on first idle tick) and bumped after
   // every failed claim. Settlers wander while waiting.
   private nextClaimAttemptTime: number = STAGGER_UNSET;
   // True once we've burned our one stuck-induced re-plan slot for the
-  // current job claim. Reset to false when the controller returns to
-  // idle (job complete, cancelled, or claim freshly acquired) so each
-  // new claim gets a fresh chance to dodge transient blockers.
+  // current task. Reset to false when the controller pops the task so
+  // each fresh task gets a chance to dodge transient blockers.
   private hasReplanned = false;
 
   // Inspect helpers (debug UI, tests).
+  // Returns the topmost JOB task's id — skips deposit subtasks. UI uses
+  // this to show "Settler is on job #N"; tests use it to assert work
+  // was claimed. Null when the stack is empty or contains only
+  // injected sub-tasks (shouldn't happen with current task kinds).
   currentJobId(): number | null {
-    if (this.state.kind === "idle" || this.state.kind === "no_op") return null;
-    return this.state.jobId;
+    for (let i = this.taskStack.length - 1; i >= 0; i--) {
+      const t = this.taskStack[i];
+      if (t && t.kind === "job") return t.jobId;
+    }
+    return null;
   }
   currentWaypoints(): Int16Array | null {
     return this.state.kind === "walking" ? this.state.waypoints : null;
@@ -123,32 +155,59 @@ export class VillagerJobController {
   currentStateName(): string {
     return this.state.kind;
   }
+  // True when there's no active task at all. Distinct from
+  // state.kind === "idle", which can also fire mid-stack between two
+  // tasks during the brief tick where one popped and the next hasn't
+  // started its path request yet.
   isIdle(): boolean {
-    return this.state.kind === "idle";
+    return this.taskStack.length === 0 && this.state.kind === "idle";
+  }
+  // Top task kind — UI hint ("currently depositing" vs "currently working").
+  currentTaskKind(): "job" | "deposit" | null {
+    return this.activeTask()?.kind ?? null;
   }
 
-  // Drop any active job back on the board (without removing it). Called
-  // when the controlling entity is removed or the settler is being
+  // Top of the stack (active task) or null if empty.
+  private activeTask(): Task | null {
+    return this.taskStack[this.taskStack.length - 1] ?? null;
+  }
+
+  // Drop any active work back on the board (without removing job entries).
+  // Called when the controlling entity is removed or the settler is being
   // possessed by the player and we want to suspend autonomy cleanly.
+  // Releases every job claim on the stack — sub-tasks like deposit are
+  // simply dropped because they own no external state.
   abandon(services: EntityServices | undefined): void {
-    if (this.state.kind === "idle" || this.state.kind === "no_op") return;
-    if (services?.jobs) services.jobs.release(this.state.jobId);
-    this.setIdle();
+    for (const t of this.taskStack) {
+      if (t.kind === "job" && services?.jobs) services.jobs.release(t.jobId);
+    }
+    this.taskStack = [];
+    this.state = { kind: "idle" };
+    this.hasReplanned = false;
   }
 
-  // Centralised "drop back to idle" that also resets per-claim state
-  // (re-plan slot). Every transition out of an active job must go
-  // through this helper — replacing `this.state = { kind: "idle" }`
-  // with an inline assignment would leak a stale hasReplanned across
-  // the next claim and quietly disable replan-on-stuck for that job.
-  private setIdle(): void {
+  // Pop the top task and reset per-task state. Every transition out of
+  // an active task must go through this helper — replacing it with an
+  // inline `taskStack.pop()` would leak hasReplanned across tasks and
+  // quietly disable replan-on-stuck for the resumed parent.
+  private popTask(): void {
+    this.taskStack.pop();
+    this.state = { kind: "idle" };
+    this.hasReplanned = false;
+  }
+
+  // Push a new task on top of the stack. The next tick starts it from
+  // a clean idle state. Used both by the claim path (push job) and by
+  // the auto-deposit injector (push deposit before claiming a job).
+  private pushTask(task: Task): void {
+    this.taskStack.push(task);
     this.state = { kind: "idle" };
     this.hasReplanned = false;
   }
 
   // Run one tick of the state machine. Returns true if the controller
-  // handled the tick (settler is busy with a job); false if idle and the
-  // caller should fall through to wander/whatever default behaviour.
+  // handled the tick (settler is busy with a task); false if completely
+  // idle and the caller should fall through to wander.
   tick(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
     // Narrow services here so subsequent helpers can read services.tileWorld
     // etc. without optional chaining or non-null assertions on every line.
@@ -169,7 +228,21 @@ export class VillagerJobController {
     }
   }
 
+  // Idle dispatch: if there's a task on the stack, start it. Otherwise
+  // try to pull a new job from the board (with stagger/backoff and the
+  // overweight-deposit gate).
   private tickIdle(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
+    const top = this.activeTask();
+    if (top) {
+      // Resume / start the top task by walking to its source.
+      return this.startActiveTask(v, ctx, services);
+    }
+    return this.tickIdleClaim(v, ctx, services);
+  }
+
+  // Stack is empty: try to claim a job (or inject a deposit if the
+  // settler is overweight from a previous task).
+  private tickIdleClaim(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
     const board = services.jobs;
     if (!board) return false;
 
@@ -302,7 +375,31 @@ export class VillagerJobController {
       return false;
     }
 
-    this.requestPathToSource(v, ctx, services, job);
+    this.pushTask({ kind: "job", jobId: job.id });
+    this.startActiveTask(v, ctx, services);
+    return true;
+  }
+
+  // Begin executing whatever task is on top of the stack. Resolves the
+  // task's source coords and kicks off the path request. Returns true
+  // (we handled the tick) unless the task can't be resolved, in which
+  // case we pop and try again next tick.
+  private startActiveTask(
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): boolean {
+    const task = this.activeTask();
+    if (!task) return false;
+    const src = taskSource(task, services);
+    if (!src) {
+      // Job vanished between push and start, or deposit target gone —
+      // drop the task; the next idle tick will try claiming again.
+      if (task.kind === "job" && services.jobs) services.jobs.cancel(task.jobId, "vanished");
+      this.popTask();
+      return true;
+    }
+    this.requestPath(v, ctx, services, "to_source", src);
     return true;
   }
 
@@ -313,45 +410,26 @@ export class VillagerJobController {
     this.nextClaimAttemptTime = ctx.time + jitterBackoff(v.id, ctx.time);
   }
 
-  private requestPathToSource(
+  // Generic path request — works for any task because the source/target
+  // is computed externally and passed in.
+  private requestPath(
     v: Villager,
-    ctx: EntityTickContext,
+    _ctx: EntityTickContext,
     services: EntityServices,
-    job: Job,
+    phase: Phase,
+    goal: { x: number; y: number },
   ): void {
     const pathfinding = services.pathfinding;
     if (!pathfinding) return;
     const nonce = this.nextNonce++;
     this.state = {
       kind: "requesting_path",
-      jobId: job.id,
-      phase: "to_source",
+      phase,
       requestNonce: nonce,
     };
     pathfinding
-      .requestPath({ x: v.worldTileX(), y: v.worldTileY() }, { x: job.source.x, y: job.source.y })
-      .then((reply) => this.onPathReply(nonce, "to_source", reply.waypoints, services, ctx.time))
-      .catch(() => this.onPathFailed(nonce, services));
-  }
-
-  private requestPathToTarget(
-    v: Villager,
-    ctx: EntityTickContext,
-    services: EntityServices,
-    job: Job,
-  ): void {
-    const pathfinding = services.pathfinding;
-    if (!pathfinding) return;
-    const nonce = this.nextNonce++;
-    this.state = {
-      kind: "requesting_path",
-      jobId: job.id,
-      phase: "to_target",
-      requestNonce: nonce,
-    };
-    pathfinding
-      .requestPath({ x: v.worldTileX(), y: v.worldTileY() }, { x: job.target.x, y: job.target.y })
-      .then((reply) => this.onPathReply(nonce, "to_target", reply.waypoints, services, ctx.time))
+      .requestPath({ x: v.worldTileX(), y: v.worldTileY() }, { x: goal.x, y: goal.y })
+      .then((reply) => this.onPathReply(nonce, phase, reply.waypoints, services))
       .catch(() => this.onPathFailed(nonce, services));
   }
 
@@ -360,37 +438,51 @@ export class VillagerJobController {
     phase: Phase,
     waypoints: Int16Array,
     services: EntityServices,
-    nowTime: number,
   ): void {
     if (this.state.kind !== "requesting_path") return;
     if (this.state.requestNonce !== nonce) return; // stale; we re-planned
-    const jobId = this.state.jobId;
     if (waypoints.length < 2) {
-      // Path not found.
-      services.jobs?.cancel(jobId, "path not found");
-      this.setIdle();
+      // Path not found — fail the task. For job tasks, cancel the job;
+      // for deposit, just drop the subtask (the parent job remains).
+      this.failTask(services, "path not found");
       return;
     }
     this.state = {
       kind: "walking",
-      jobId,
       phase,
       waypoints,
       // Skip waypoints[0] — that's the start tile we're already on.
       idx: 2,
-      lastAdvanceTime: nowTime,
+      lastAdvanceTime: Number.NEGATIVE_INFINITY,
     };
+    // Initialize lastAdvanceTime on the next walking tick so we don't
+    // accidentally report "stuck" before the first frame ran. We can't
+    // know ctx.time here without threading it through; -Infinity makes
+    // the first walking tick set it and start the clock cleanly.
   }
 
   private onPathFailed(nonce: number, services: EntityServices): void {
     if (this.state.kind !== "requesting_path") return;
     if (this.state.requestNonce !== nonce) return;
-    services.jobs?.cancel(this.state.jobId, "path request rejected");
-    this.setIdle();
+    this.failTask(services, "path request rejected");
+  }
+
+  // Drop the active task. Cancels its job claim if it's a job task.
+  private failTask(services: EntityServices, reason: string): void {
+    const task = this.activeTask();
+    if (task && task.kind === "job" && services.jobs) {
+      services.jobs.cancel(task.jobId, reason);
+    }
+    this.popTask();
   }
 
   private tickWalking(v: Villager, ctx: EntityTickContext, services: EntityServices): boolean {
     if (this.state.kind !== "walking") return true;
+    // First-tick init for the stuck timer (set by onPathReply to
+    // -Infinity so we don't measure stuck-ness before walking begins).
+    if (this.state.lastAdvanceTime === Number.NEGATIVE_INFINITY) {
+      this.state.lastAdvanceTime = ctx.time;
+    }
     const wp = this.state.waypoints;
     if (this.state.idx >= wp.length) {
       // Reached end of waypoints — should have transitioned out already.
@@ -421,22 +513,21 @@ export class VillagerJobController {
     if (stuckFor > STUCK_TIMEOUT_SEC) {
       // Last resort: relaxation didn't break the deadlock either.
       // Cancel; re-emit will reschedule the job from a clean slate.
-      services.jobs?.cancel(this.state.jobId, "stuck");
+      this.failTask(services, "stuck");
       v.stuckSince = Number.NEGATIVE_INFINITY;
-      this.setIdle();
       return true;
     }
     if (!this.hasReplanned && stuckFor > REPLAN_THRESHOLD_SEC) {
       // First chance: ask for a fresh path from the current tile. The
       // hasReplanned flag prevents a stuck settler from spamming the
-      // worker — it's reset only when the controller returns to idle.
-      const job = services.jobs?.get(this.state.jobId);
-      if (job) {
-        this.hasReplanned = true;
-        if (this.state.phase === "to_source") {
-          this.requestPathToSource(v, ctx, services, job);
-        } else {
-          this.requestPathToTarget(v, ctx, services, job);
+      // worker — it's reset only when the controller pops the task.
+      const phase = this.state.phase;
+      const task = this.activeTask();
+      if (task) {
+        const goal = phase === "to_source" ? taskSource(task, services) : taskTarget(task, services);
+        if (goal) {
+          this.hasReplanned = true;
+          this.requestPath(v, ctx, services, phase, goal);
         }
       }
     }
@@ -451,7 +542,6 @@ export class VillagerJobController {
     if (this.state.kind !== "walking") return true;
     this.state = {
       kind: "acting",
-      jobId: this.state.jobId,
       phase: this.state.phase,
       until: ctx.time + ACT_DURATION_SEC,
     };
@@ -462,42 +552,94 @@ export class VillagerJobController {
     if (this.state.kind !== "acting") return true;
     if (ctx.time < this.state.until) return true;
 
-    const board = services.jobs;
-    if (!board) return true;
-    const job = board.get(this.state.jobId);
-    if (!job) {
-      // Job was cancelled out from under us (e.g., crash recovery);
-      // settle back to idle.
-      this.setIdle();
+    const task = this.activeTask();
+    if (!task) {
+      // Stack went empty under us — shouldn't happen, but recover.
+      this.popTask();
       return true;
     }
 
-    if (this.state.phase === "to_source") {
-      this.actAtSource(v, ctx, services, job);
-      // After source act:
-      //   - if target === source → complete
-      //   - else → walk to target
-      if (sameTile(job.source, job.target)) {
-        board.complete(job.id);
-        this.setIdle();
-      } else {
-        this.requestPathToTarget(v, ctx, services, job);
+    const board = services.jobs;
+    if (!board) return true;
+
+    // For job tasks, double-check the board entry hasn't been cancelled
+    // (e.g., crash recovery); deposit tasks live entirely in-controller.
+    if (task.kind === "job") {
+      const job = board.get(task.jobId);
+      if (!job) {
+        this.popTask();
+        return true;
       }
+    }
+
+    if (this.state.phase === "to_source") {
+      this.actAtSource(task, v, ctx, services);
+      const target = taskTarget(task, services);
+      const source = taskSource(task, services);
+      // If the task has no separate target (or it equals source), it's done.
+      if (!target || (source && sameTile(source, target))) {
+        this.completeTask(task, services);
+        return true;
+      }
+      this.requestPath(v, ctx, services, "to_target", target);
       return true;
     }
 
     // phase === "to_target"
-    this.actAtTarget(v, ctx, services, job);
-    board.complete(job.id);
-    this.setIdle();
+    this.actAtTarget(task, v, ctx, services);
+    this.completeTask(task, services);
     return true;
   }
 
+  // Mark the active task as successfully done: complete its board entry
+  // (if any) and pop. Differs from failTask in that the job is
+  // *consumed* not *cancelled* — telemetry/UI can distinguish later.
+  private completeTask(task: Task, services: EntityServices): void {
+    if (task.kind === "job" && services.jobs) services.jobs.complete(task.jobId);
+    this.popTask();
+  }
+
+  // Source-act dispatch — runs the action at the source tile of the
+  // active task. Safe to call on any task kind; job tasks dispatch by
+  // job.kind, deposit tasks have no source action (the deposit happens
+  // at the target/standing tile).
   private actAtSource(
+    task: Task,
     v: Villager,
     ctx: EntityTickContext,
     services: EntityServices,
+  ): void {
+    if (task.kind === "deposit") {
+      // Deposit tasks have source === standingTile. The deposit itself
+      // happens here (one-phase task); actAtTarget is a no-op.
+      this.depositAll(task, v, ctx, services);
+      return;
+    }
+    const job = services.jobs?.get(task.jobId);
+    if (!job) return;
+    this.actAtSourceForJob(job, v, ctx, services);
+  }
+
+  // Target-act dispatch. Only HARVEST has a target action today; other
+  // job kinds and deposit tasks return cleanly.
+  private actAtTarget(
+    task: Task,
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): void {
+    if (task.kind !== "job") return;
+    const job = services.jobs?.get(task.jobId);
+    if (!job) return;
+    if (job.kind !== JOB_KIND_HARVEST_CROP) return;
+    this.actAtTargetForHarvest(job, v, ctx, services);
+  }
+
+  private actAtSourceForJob(
     job: Job,
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
   ): void {
     const tw = services.tileWorld;
     if (!tw) return;
@@ -617,13 +759,12 @@ export class VillagerJobController {
     }
   }
 
-  private actAtTarget(
+  private actAtTargetForHarvest(
+    job: Job,
     v: Villager,
     ctx: EntityTickContext,
     services: EntityServices,
-    job: Job,
   ): void {
-    if (job.kind !== JOB_KIND_HARVEST_CROP) return; // only HARVEST has a separate target
     const crates = services.crates;
     const tw = services.tileWorld;
     if (!crates || !tw) return;
@@ -664,9 +805,65 @@ export class VillagerJobController {
       });
     }
   }
+
+  // Deposit task action: drop everything we're carrying at the crate.
+  // Like actAtTargetForHarvest but reads coords from the task instead
+  // of from a Job. Skips items the parent task wants to keep
+  // (Job.holdItems will land in the next commit).
+  private depositAll(
+    task: { kind: "deposit"; standingTile: { x: number; y: number }; cratePos: { x: number; y: number } },
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): void {
+    const crates = services.crates;
+    if (!crates) return;
+    const memTick = ctx.simTick ?? Math.floor(ctx.time);
+    let totalStored = 0;
+    let lastItem: ItemId | 0 = 0;
+    for (const [item, count] of Array.from(v.carriedItems)) {
+      const stored = crates.deposit(task.cratePos.x, task.cratePos.y, item, count);
+      if (stored > 0) {
+        v.drop(item, stored);
+        totalStored += stored;
+        lastItem = item;
+      }
+    }
+    if (totalStored > 0) {
+      recordMemory(v, {
+        type: MEMORY_EVENT_TYPES.DEPOSITED,
+        tick: memTick,
+        subjectId: lastItem as number,
+        tileX: task.cratePos.x,
+        tileY: task.cratePos.y,
+      });
+    }
+  }
 }
 
-// Helpers ----------------------------------------------------------------
+// ---- Task source/target resolution ------------------------------------
+
+// Returns the world tile a settler must reach to begin acting on the
+// active task. For job tasks, that's the job's source; for deposit
+// tasks, the standingTile (a walkable tile adjacent to the crate).
+function taskSource(task: Task, services: EntityServices): { x: number; y: number } | null {
+  if (task.kind === "deposit") return task.standingTile;
+  const job = services.jobs?.get(task.jobId);
+  if (!job) return null;
+  return job.source;
+}
+
+// Returns the world tile a settler must reach for the second leg of a
+// task (e.g. the crate after harvesting). Returns the same as
+// taskSource for single-phase tasks.
+function taskTarget(task: Task, services: EntityServices): { x: number; y: number } | null {
+  if (task.kind === "deposit") return task.standingTile;
+  const job = services.jobs?.get(task.jobId);
+  if (!job) return null;
+  return job.target;
+}
+
+// ---- Helpers ----------------------------------------------------------
 
 // Knuth multiplicative hash on a 32-bit integer. Cheap, well-distributed,
 // no per-call allocation. Used for both id stagger and per-attempt jitter
