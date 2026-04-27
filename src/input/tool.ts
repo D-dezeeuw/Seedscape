@@ -5,7 +5,7 @@
 export type Tool = "none" | "till" | "plant" | "water" | "harvest" | "build" | "feed" | "dismantle";
 
 export const TOOL_LABELS: Record<Tool, string> = {
-  none: "Pan",
+  none: "Pointer",
   till: "Till",
   plant: "Plant",
   water: "Water",

@@ -7,6 +7,7 @@ const TILE_FARMLAND_TILLED = 13;
 const TILE_RICH_SOIL = 11;
 const TILE_DRY_GRASS = 10;
 const TILE_ROCKY_OUTCROP = 20;
+const TILE_BARREN_STONE = 22;
 const TILE_SHALLOW_WATER = 0;
 const TILE_DEEP_WATER = 1;
 const TILE_MUDFLAT = 31;
@@ -96,12 +97,12 @@ describe("enqueueJob", () => {
 });
 
 describe("dismantleBuilding", () => {
-  test("clears a placed building back to tilled farmland", () => {
+  test("clears a placed building back to barren stone", () => {
     const c = allocChunkData();
     c.tileId[0] = TILE_FARMLAND_TILLED;
     setBuildingTile(c, 0, 0, MILL);
     expect(dismantleBuilding(c, 0, 0).applied).toBe(true);
-    expect(c.tileId[0]).toBe(TILE_FARMLAND_TILLED);
+    expect(c.tileId[0]).toBe(TILE_BARREN_STONE);
     expect(c.state[0]).toBe(0);
   });
 

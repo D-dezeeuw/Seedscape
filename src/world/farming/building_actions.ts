@@ -16,7 +16,9 @@ import {
   setQueuedJobs,
 } from "./building_registry";
 
-const TILE_FARMLAND_TILLED = 13;
+// Dismantling reverts to barren stone — visually communicates that the
+// ground was torn up to remove the building.
+const TILE_BARREN_STONE = 22;
 // Buildings sit on any solid ground tile — anything in the ground id range
 // (0..99) that isn't water or soft marsh. Crops (100..199) and existing
 // buildings (200..299) are excluded by the id range check.
@@ -68,13 +70,15 @@ export function enqueueJob(chunk: ChunkData, x: number, y: number): BuildingActi
   return { applied: true };
 }
 
-// Tear down a placed building. Phase 4 doesn't refund coins — discourages
-// griefing and keeps the economy simple.
+// Tear down a placed building. No coin refund — discourages griefing
+// and keeps the economy simple. Tile reverts to barren stone, not
+// tilled farmland, so the player has to deliberately re-till before
+// planting on the spot again.
 export function dismantleBuilding(chunk: ChunkData, x: number, y: number): BuildingActionResult {
   const i = tileIndex(x, y);
   const tileId = chunk.tileId[i] ?? 0;
   if (!buildingForTile(tileId)) return { applied: false };
-  chunk.tileId[i] = TILE_FARMLAND_TILLED;
+  chunk.tileId[i] = TILE_BARREN_STONE;
   chunk.state[i] = 0;
   chunk.metadata[i] = 0;
   return { applied: true };

@@ -8,6 +8,7 @@
 // cheap when the camera is panned far from any entity.
 
 import type { Camera } from "../input/camera";
+import { worldToScreen } from "../input/picker";
 import { Animal } from "../state/entities/animal";
 import type { Entity } from "../state/entities/entity";
 import { Villager } from "../state/entities/villager";
@@ -45,10 +46,15 @@ export class EntityLabels {
       }
       if (el.textContent !== text) el.textContent = text;
 
-      // World → screen: X is direct, Y is flipped because world Y is
-      // up-positive in the projection (see picker.ts for the inverse).
-      const sx = canvasWidth / 2 + (e.worldX() + 0.5 - camera.x) / camera.zoom;
-      const sy = canvasHeight / 2 - (e.worldY() + 0.5 - camera.y) / camera.zoom;
+      const { sx, sy } = worldToScreen(
+        e.worldX() + 0.5,
+        e.worldY() + 0.5,
+        camera.x,
+        camera.y,
+        camera.zoom,
+        canvasWidth,
+        canvasHeight,
+      );
 
       // Cull off-screen with a small margin so labels at edges still
       // animate in/out smoothly.

@@ -203,6 +203,100 @@ See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
 
 ---
 
+## Phase 9 — Animals & Irrigation
+
+**Goal:** Restore the deferred 3.5 slice. Pens with chickens (egg) and cows (milk), Well + Sprinkler buildings for auto-watering, restored Bakery egg recipe.
+
+**Duration:** ~5–7 days (planned)
+
+### Deliverables
+
+- Animal entity class (chicken, cow) with hunger + cycle-based produce
+- Pen tiles 400 / 410, output buffers reusing `BuildingBufferStore`
+- Well (3×3) + Sprinkler (5×5) auto-water buildings, sim-driven
+- New job kinds: `FEED_ANIMAL`, `COLLECT_PRODUCE`
+- Bakery egg ingredient restored
+- New items: `animalFeed`, `egg`, `milk`
+
+### Exit Criteria
+
+> Player places a pen, buys a chicken, drops feed in a nearby crate. A settler hauls feed to the pen, the chicken produces an egg, another settler hauls it to a storage crate — without further input. A Well auto-waters surrounding tilled tiles. Bakery now consumes flour + egg.
+
+Full plan: [23_phase_09_animals_irrigation.md](23_phase_09_animals_irrigation.md).
+
+---
+
+## Phase 10 — People Simulation: Needs, Sleep, Eat
+
+**Goal:** Settlers run on a 6-need vector with deterministic decay. Day/night phase boundary gates sleep. Player builds beds, kitchens, and toilets — or villagers' mood and work output collapse.
+
+**Duration:** ~14–18 days (planned)
+
+### Deliverables
+
+- 6-need vector per `LivingEntity` (hunger, sleep, cleanliness, toilet, social, mood)
+- Day cycle: 1440 ticks/day, 4 phases (Dawn/Day/Dusk/Night)
+- Buildings: Bed, Kitchen, Table, Toilet (tile range 240–249)
+- Need-driven task injection via existing `taskStack` (Phase 7.5): `eat`, `sleep`, `relieve`, `bathe`
+- Mood derived from needs; mood modifies work speed
+- Person window needs bars + HUD day/phase indicator
+
+### Exit Criteria
+
+> Settler self-paces a full day: works during the day, eats at the table when hungry, uses the toilet when needed, sleeps in their bed at night, wakes at dawn. Skip building any of the four — the relevant need crashes, mood drops, a toast warns the player. Save/reload preserves all needs + day phase.
+
+Full plan: [24_phase_10_people_simulation.md](24_phase_10_people_simulation.md).
+
+---
+
+## Phase 11 — Dynamic Economy & Full Production Catalog
+
+**Goal:** Resolve the deferred 4.5 work. Dynamic supply/demand pricing replaces fixed prices. The full building catalog (Juicer, Smelter, Press, Dairy, Forge, Refinery) becomes placeable, and tier upgrades land.
+
+**Duration:** ~10–14 days (planned)
+
+### Deliverables
+
+- Demand multiplier per item, derived from rolling supply/demand counters
+- Inflation controls: floor 0.5×, ceiling 2.0× basePrice
+- 6 new buildings wired into the unlock tree + recipes
+- Multi-output building support (Dairy: cheese + butter)
+- Building tier UI (0 → 4 progression already in JSON)
+- 3–5 NPC traders with preference profiles, optional standing orders
+- Order rows show price-trend arrows
+
+### Exit Criteria
+
+> A struggling village (food shortages from Phase 10) sees bread prices spike. Flooding the cheese market drops its price 30% over a few days. All seven production buildings run end-to-end via settler hauling. At least one tier-1 upgrade has a visible cycle-time improvement.
+
+Full plan: [25_phase_11_dynamic_economy.md](25_phase_11_dynamic_economy.md).
+
+---
+
+## Phase 12 — Settler Arrival & Village Identity
+
+**Goal:** New villagers arrive at the village based on its viability (food surplus, housing, activity). Each arrives with a procedural backstory, traits, and starting state. Pairwise relationships emerge between villagers; the village stops being interchangeable labor and becomes a community.
+
+**Duration:** ~10–14 days (planned)
+
+### Deliverables
+
+- Arrival probability per game day from village viability score
+- Backstory templates in `data/backstories.json` (20–30 variants)
+- Trait flags (LIKES_ANIMALS, EARLY_RISER, etc.) — meaningful behavior modifiers
+- Pairwise relationship matrix (sparse, friendship −128..127)
+- Per-villager memory of player actions (helped / neglected counters)
+- Welcome Hall building (optional but adds narrative beat)
+- First-arrival scripted toast
+
+### Exit Criteria
+
+> Player runs a viable village for a few in-game days. A new villager appears at the chunk edge, walks in, and introduces themselves via toast: "[Name] has come to your farm. They say they were [backstory]." Their starting needs and traits match the backstory. Days later, the newcomer has measurable friendships and rivalries with existing settlers.
+
+Full plan: [26_phase_12_settler_arrival.md](26_phase_12_settler_arrival.md).
+
+---
+
 ## Phase 7.5 — Weighted Carry & Task Injection
 
 **Goal:** Make settler inventories physical (weight, not count) and give the controller a generic mechanism for "do X before Y" sub-tasks. The first consumer is auto-deposit when overweight; future consumers are mid-job interrupts (eat, sleep, take shelter) and Phase 8 production hauling.
@@ -239,6 +333,10 @@ See [22_pathfinding.md](22_pathfinding.md) for the engine reference.
 | 7     | ~2 weeks   | Autonomous settlers + pathfinding      |
 | 7.5   | ~3 days    | Weighted carry + task injection        |
 | 8     | ~3–5 days  | Settler-driven production hauling      |
+| 9     | ~5–7 days  | Animals + irrigation (planned)         |
+| 10    | ~14–18 days| People simulation: needs + sleep + eat (planned) |
+| 11    | ~10–14 days| Dynamic economy + full production catalog (planned) |
+| 12    | ~10–14 days| Settler arrival + village identity (planned) |
 
 ---
 

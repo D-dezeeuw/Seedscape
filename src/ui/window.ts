@@ -78,6 +78,14 @@ function buildCloseButton(onClose: () => void): HTMLButtonElement {
   return close;
 }
 
+// Global registry of every UiWindow currently mounted. Used to enforce
+// "only one window open at a time" — opening any window via show()
+// closes whichever sibling was already open. Without this, callers
+// outside the toolbar (entity-click → person, tile-click → container /
+// building) could leave their panel up while the user opened a toolbar
+// window, producing overlapping panels.
+const REGISTRY: Set<UiWindow> = new Set();
+
 export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow {
   panel.classList.add("ss-window");
   panel.style.display = "none";
@@ -88,8 +96,15 @@ export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow 
     for (const cb of listeners) cb(next);
   };
 
+  // Forward declaration so show() can pass `self` to closeOthers without
+  // a circular const-binding error.
+  let self: UiWindow;
+
   const show = (): void => {
     if (open) return;
+    for (const other of REGISTRY) {
+      if (other !== self && other.isOpen()) other.hide();
+    }
     panel.style.display = "";
     open = true;
     fire(true);
@@ -107,9 +122,10 @@ export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow 
 
   wrapPanelStructure(panel, { onClose: hide });
 
-  return {
+  self = {
     element: panel,
     destroy: () => {
+      REGISTRY.delete(self);
       panel.remove();
       onDestroy();
     },
@@ -122,4 +138,6 @@ export function makeWindow(panel: HTMLElement, onDestroy: () => void): UiWindow 
       return () => listeners.delete(cb);
     },
   };
+  REGISTRY.add(self);
+  return self;
 }
