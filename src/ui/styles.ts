@@ -122,8 +122,9 @@ export function injectUiStyles(): void {
       max-width: 480px;
       max-height: calc(100vh - 160px);
     }
-    /* Person window — entity-click context popover. Lives off to the
-       right of the toolbar windows so both can be visible at once. */
+    /* Person window — entity-click context popover. Pinned to the
+       right of the toolbar so the layout remains predictable; only
+       one panel is open at a time (window mutex in window.ts). */
     .ss-window.ss-person {
       bottom: 110px;
       right: 8px;
@@ -315,6 +316,24 @@ export function injectUiStyles(): void {
       box-shadow:
         0 0 0 1px rgba(0, 0, 0, 0.6) inset,
         0 0 8px 2px rgba(255, 224, 96, 0.55);
+    }
+
+    /* Build-tool preview reticle — same shape as the possession
+       reticle but green (vs yellow) so the player can tell at a
+       glance which interaction is armed. Visible whenever the
+       build tool is active and the cursor is over the canvas. */
+    .ss-build-reticle {
+      position: fixed;
+      top: 0;
+      left: 0;
+      box-sizing: border-box;
+      border: 2px solid rgba(120, 220, 120, 0.95);
+      box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.6) inset,
+        0 0 8px 2px rgba(120, 220, 120, 0.45);
+      pointer-events: none;
+      z-index: 4;
+      will-change: transform, width, height;
     }
 
     /* Floating name labels above entities. Positioned per-frame from

@@ -25,6 +25,7 @@ import { entityCenter, PossessionController } from "./state/possession";
 import { isActionable, resolvePossessedAction } from "./state/possession_actions";
 import { SaveManager } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
+import { BuildPreviewReticle } from "./ui/build_preview_reticle";
 import { createBuildingWindow } from "./ui/building_window";
 import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
@@ -357,6 +358,7 @@ async function bootstrap(): Promise<void> {
   const detachHud = createHud(topLeftStack, player);
   const entityLabels = new EntityLabels(document.body);
   const facedReticle = new FacedTileReticle(document.body);
+  const buildReticle = new BuildPreviewReticle(document.body, canvas);
   const detachInfo = createTileInfo({
     parent: topLeftStack,
     canvas,
@@ -408,6 +410,17 @@ async function bootstrap(): Promise<void> {
     tool,
     windows: toolbarWindows,
   });
+
+  // Closing a toolbar window resets the tool to "Pointer" — most
+  // notably, closing the Shop drops a build-tool selection so the
+  // green build reticle vanishes. Other windows don't currently set
+  // a tool, but the rule is uniform so future ones don't need to
+  // remember to wire it.
+  const toolbarWindowCloseSubs = toolbarWindows.map((entry) =>
+    entry.window.onChange((open) => {
+      if (!open && tool.current !== "none") tool.set("none");
+    }),
+  );
 
   // ESC priority — registered AFTER all UI keydown listeners so it runs
   // last in the DOM dispatch order. Window-closing handlers (toolbar,
@@ -767,8 +780,10 @@ async function bootstrap(): Promise<void> {
     // can move between chunks; the walk is O(entities), trivial at 150.
     // Pooled to avoid per-frame allocations in the steady state.
     entityChunkScratch.clear();
+    let settlerCount = 0;
     for (const e of entityManager.iterate()) {
       entityChunkScratch.add(chunkKey(e.chunkX, e.chunkY));
+      if (e instanceof Villager) settlerCount++;
     }
     chunkManager.update(rect, { simKeepSet: entityChunkScratch });
 
@@ -790,6 +805,7 @@ async function bootstrap(): Promise<void> {
 
     overlay.setChunkCount(renderer.chunkCount);
     overlay.setTileCount(renderer.tileCount);
+    overlay.setSettlerCount(settlerCount);
 
     gl.clear(gl.COLOR_BUFFER_BIT);
     const t = ((timestampMs - start) / 1000) % 3600;
@@ -808,6 +824,7 @@ async function bootstrap(): Promise<void> {
       canvas.clientHeight,
       TILE_WORLD_SIZE,
     );
+    buildReticle.update(tool, camera, TILE_WORLD_SIZE);
     // Phase 9: while possessing, run the resolver against the faced
     // tile each frame. Cheap — one tile read + a few branches —
     // and drives both the reticle's actionable state (yellow vs
@@ -852,6 +869,7 @@ async function bootstrap(): Promise<void> {
       detachHud();
       detachInfo();
       topLeftStack.remove();
+      for (const off of toolbarWindowCloseSubs) off();
       toolbar.destroy();
       possessionBar.destroy();
       detachDebugButton();
@@ -866,6 +884,7 @@ async function bootstrap(): Promise<void> {
       toaster.destroy();
       entityLabels.destroy();
       facedReticle.destroy();
+      buildReticle.destroy();
       entityRenderer.destroy();
       renderer.destroy();
       generationPool.terminate();
@@ -896,9 +915,5 @@ function chunkHasSimulatable(record: ChunkRecord): boolean {
   }
   return false;
 }
-
-// Re-export tileIndex so the sim handler above can reference building tile
-// ids by tile index without cross-importing into the wrong layer.
-void tileIndex;
 
 bootstrap().catch(showFatalError);

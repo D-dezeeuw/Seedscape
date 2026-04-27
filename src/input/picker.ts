@@ -45,6 +45,26 @@ export function pickTile(
   return { worldTileX, worldTileY, chunkX, chunkY, localX, localY };
 }
 
+// Inverse of pickTile's center math: project a world-space (sub-tile)
+// position onto the canvas in screen pixels. Used by every overlay
+// that draws on top of the canvas (entity labels, faced-tile reticle,
+// build-preview reticle). World Y is up-positive in the projection so
+// screen Y is flipped — keep this asymmetry in one place.
+export function worldToScreen(
+  worldX: number,
+  worldY: number,
+  cameraX: number,
+  cameraY: number,
+  cameraZoom: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): { sx: number; sy: number } {
+  return {
+    sx: canvasWidth / 2 + (worldX - cameraX) / cameraZoom,
+    sy: canvasHeight / 2 - (worldY - cameraY) / cameraZoom,
+  };
+}
+
 // Same conversion but starting from world-tile coords (e.g. an entity's
 // facedTile()). Used by the action-key path to address the same tile data
 // the click picker would.

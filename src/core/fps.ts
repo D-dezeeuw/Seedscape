@@ -7,12 +7,13 @@ export interface OverlayHandle {
   tick: (timestampMs: number) => void;
   setTileCount: (n: number) => void;
   setChunkCount: (n: number) => void;
+  setSettlerCount: (n: number) => void;
 }
 
 export function createFpsOverlay(parent: HTMLElement): OverlayHandle {
   const el = document.createElement("div");
   el.className = "ss-panel ss-performance";
-  el.textContent = "fps —";
+  el.textContent = "— FPS";
   parent.appendChild(el);
 
   let frames = 0;
@@ -20,9 +21,10 @@ export function createFpsOverlay(parent: HTMLElement): OverlayHandle {
   let fps = 0;
   let tileCount = 0;
   let chunkCount = 0;
+  let settlerCount = 0;
 
   const render = (): void => {
-    el.textContent = `${fps} fps · ${chunkCount} chunks · ${tileCount.toLocaleString()} tiles`;
+    el.textContent = `${fps} FPS · ${chunkCount} Chunks · ${tileCount.toLocaleString()} Tiles · ${settlerCount} Settlers`;
   };
 
   return {
@@ -42,6 +44,9 @@ export function createFpsOverlay(parent: HTMLElement): OverlayHandle {
     },
     setChunkCount(n) {
       chunkCount = n;
+    },
+    setSettlerCount(n) {
+      settlerCount = n;
     },
   };
 }

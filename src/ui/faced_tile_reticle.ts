@@ -13,6 +13,7 @@
 // the resolver.
 
 import type { Camera } from "../input/camera";
+import { worldToScreen } from "../input/picker";
 import type { Entity } from "../state/entities/entity";
 import type { PossessionController } from "../state/possession";
 
@@ -52,12 +53,15 @@ export class FacedTileReticle {
     }
 
     const target = ent.facedTile();
-    // World→screen for the tile's center. World Y is up-positive in the
-    // projection so screen Y is flipped (matches entity_labels).
-    const cx = (target.x + 0.5) * tileWorldSize;
-    const cy = (target.y + 0.5) * tileWorldSize;
-    const sx = canvasWidth / 2 + (cx - camera.x) / camera.zoom;
-    const sy = canvasHeight / 2 - (cy - camera.y) / camera.zoom;
+    const { sx, sy } = worldToScreen(
+      (target.x + 0.5) * tileWorldSize,
+      (target.y + 0.5) * tileWorldSize,
+      camera.x,
+      camera.y,
+      camera.zoom,
+      canvasWidth,
+      canvasHeight,
+    );
     const sizePx = tileWorldSize / camera.zoom;
 
     this.el.style.display = "";

@@ -43,6 +43,13 @@ Numbered reference. Pull targeted docs per task — do not load all at once.
 - [15_rendering_shaders.md](15_rendering_shaders.md) — GLSL contract
 - [22_pathfinding.md](22_pathfinding.md) — Pathfinding engine + autonomous job system + task stack (Phase 7.5)
 
+## Phase Plans (next four)
+
+- [23_phase_09_animals_irrigation.md](23_phase_09_animals_irrigation.md) — Animals + Well/Sprinkler (deferred 3.5)
+- [24_phase_10_people_simulation.md](24_phase_10_people_simulation.md) — Needs + sleep + eat + day cycle
+- [25_phase_11_dynamic_economy.md](25_phase_11_dynamic_economy.md) — Dynamic pricing + full production catalog (deferred 4.5)
+- [26_phase_12_settler_arrival.md](26_phase_12_settler_arrival.md) — Arrival mechanic + backstories + relationships
+
 ## Future
 
 - [16_networking_model.md](16_networking_model.md) — Multiplayer design
