@@ -91,15 +91,19 @@ Single-claim mutex. Stale jobs (source vanished, target changed) auto-cancel and
 
 ### Job Kinds
 
-| Kind           | Source                     | Target                        | World effect                       |
-|----------------|----------------------------|-------------------------------|------------------------------------|
-| `HAUL_WATER`   | nearest water tile or well | settler's water reserve       | reserve += capacity                |
-| `WATER_CROP`   | settler's water reserve    | thirsty farmland tile         | crop water += 1; reserve -= 1      |
-| `HARVEST_CROP` | ripe crop tile             | nearest storage crate         | crop reset; crate contents += yield|
-| `PLANT_SEED`   | empty tilled tile          | same (single-phase)           | tile becomes crop stage 0          |
-| `HAUL_SEED`    | container with seeds       | same (single-phase)           | seed withdrawn into settler carry  |
+| Kind             | Source                     | Target                        | World effect                          |
+|------------------|----------------------------|-------------------------------|---------------------------------------|
+| `HAUL_WATER`     | nearest water tile or well | settler's water reserve       | reserve += capacity                   |
+| `WATER_CROP`     | settler's water reserve    | thirsty farmland tile         | crop water += 1; reserve -= 1         |
+| `HARVEST_CROP`   | ripe crop tile             | nearest storage crate         | crop reset; crate contents += yield   |
+| `PLANT_SEED`     | empty tilled tile          | same (single-phase)           | tile becomes crop stage 0             |
+| `HAUL_SEED`      | container with seeds       | same (single-phase)           | seed withdrawn into settler carry     |
+| `FEED_BUILDING`  | crate with input item      | building's input buffer       | input buffer += cycleInput            |
+| `HAUL_OUTPUT`    | building's output buffer   | nearest accepting crate       | crate += output; output buffer -=     |
 
 `PLANT_SEED` and `HAUL_SEED` chain: idle settler with `PLANT_SEED` claimable but no seed → spawns `HAUL_SEED` for itself → next idle re-claims `PLANT_SEED` with the seed in hand.
+
+`FEED_BUILDING` / `HAUL_OUTPUT` (Phase 8) drive the production chain: settlers fill non-passive buildings' input buffers from crates and haul their output to a destination crate. Source/target are emitted as the building tile and resolved at claim time to standing tiles next to the crate (FEED) or the building (HAUL_OUTPUT). Both jobs set `holdItems: [itemId]` so the cargo isn't auto-deposited mid-trip — the same Phase 7.5 plumbing that protects HAUL_SEED's seed.
 
 ### Job Emitter
 
@@ -108,6 +112,8 @@ Periodic scan over loaded chunks (default: every ~30 sim ticks):
 - `WATER_CROP` — farmland with water below threshold
 - `HARVEST_CROP` — crops at max stage
 - `PLANT_SEED` — empty tilled tile + at least one container with seeds
+- `FEED_BUILDING` — non-passive building with input buffer below 50% of cap
+- `HAUL_OUTPUT` — non-passive building with any items in its output buffer
 - `HAUL_WATER` / `HAUL_SEED` — emitted lazily by a settler that claimed a job needing the prerequisite
 
 Emitter only re-emits on observable state change. Throttled to avoid storms.
@@ -170,6 +176,15 @@ Two tile ids:
 - `221` — Seed Dispenser (accepts seeds only; auto-restocks from player inventory)
 
 Per-tile contents stored sparsely as `Map<tileKey, Map<ItemId, count>>`. Containers block walking like other buildings; standing tile is the closest walkable neighbour.
+
+### Building Buffers (Phase 8)
+
+Active (non-passive) buildings — Mill and Bakery today — each carry two sparse buffers in `BuildingBufferStore`:
+
+- **Input buffer** — items waiting to be consumed by a cycle. Settlers drop into it via `FEED_BUILDING`; the player can deposit manually via the building window. The main-thread `autoQueueFromBuffers` tick drains one `cycleInput` per pass into `metadata.queued`, capped at `INPUT_BUFFER_MULTIPLIER` so a full buffer doesn't starve future deliveries.
+- **Output buffer** — items produced by finished cycles. The sim's `ProductionEvent` is now redirected here on the main thread instead of the player's inventory; back-pressure: if the buffer is full, overflow is forfeit and XP credits track stored, not produced. Settlers drain it via `HAUL_OUTPUT`; the player can withdraw manually via the building window.
+
+Caps are bounded multiples of `cycleInput / cycleOutput` (`INPUT_BUFFER_MULTIPLIER = 3`, `OUTPUT_BUFFER_MULTIPLIER = 3`). Persisted in save (`SAVE_VERSION 10`); `taskStack` is still not — settlers re-derive their work from the board on first tick after load.
 
 ---
 
