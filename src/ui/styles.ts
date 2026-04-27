@@ -58,17 +58,42 @@ export function injectUiStyles(): void {
       margin: 8px 0 4px 0;
     }
 
-    /* Always-visible status panels. HUD top-right; performance overlay
-       top-center; tile-info top-left. */
-    .ss-hud { top: 8px; right: 8px; min-width: 200px; }
+    /* Always-visible status panels. HUD + tile-info now share a
+       top-left stack so the player can read both without scanning
+       opposite corners. Performance overlay stays centred. */
+    .ss-stack-topleft {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 5;
+      pointer-events: none;
+      max-height: calc(100vh - 16px);
+    }
+    /* Panels inside the stack flow normally instead of pinning to
+       the viewport — the stack container handles positioning. The
+       :where wrapper keeps the override at zero specificity so a
+       future stand-alone use of these classes (without the stack)
+       still picks up the .ss-panel position. */
+    :where(.ss-stack-topleft) > .ss-panel {
+      position: relative;
+      top: auto;
+      left: auto;
+      right: auto;
+      pointer-events: auto;
+    }
+    .ss-hud { min-width: 200px; }
     .ss-performance {
+      position: fixed;
       top: 8px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
       pointer-events: none;
     }
-    .ss-info { top: 8px; left: 8px; min-width: 220px; max-width: 280px; }
+    .ss-info { min-width: 220px; max-width: 280px; }
 
     /* Toolbar-managed windows: centered above the bottom toolbar. */
     .ss-window {
@@ -159,20 +184,18 @@ export function injectUiStyles(): void {
       min-width: 80px;
     }
 
-    /* Phase 9 contextual action bar — replaces the toolbar's tool
-       row while possessing. Same anchor (bottom-centre) as the
-       toolbar; sits above it via z-index so the toolbar's window
-       row stays clickable below. */
+    /* Possession contextual action panel — replaces the toolbar
+       while possessing. Uses the standard .ss-panel styling for
+       consistency with the rest of the UI; the rules below pin it
+       to the bottom-centre and tune the inner layout (button +
+       optional muted hint). */
     .ss-possession-bar {
-      position: fixed;
-      bottom: 56px;
+      bottom: 12px;
       left: 50%;
       transform: translateX(-50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      pointer-events: auto;
+      min-width: 200px;
+      max-width: 320px;
+      text-align: center;
       z-index: 11;
     }
     .ss-possession-action {
@@ -180,11 +203,8 @@ export function injectUiStyles(): void {
       align-items: center;
       gap: 8px;
       padding: 8px 14px;
-      background: rgba(20, 26, 32, 0.94);
       border: 1px solid rgba(255, 224, 96, 0.7);
       border-radius: 6px;
-      color: #e8eaed;
-      font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
       cursor: pointer;
       box-shadow: 0 0 8px 2px rgba(255, 224, 96, 0.25);
     }
@@ -210,11 +230,9 @@ export function injectUiStyles(): void {
     }
     .ss-possession-hint {
       padding: 6px 12px;
-      background: rgba(20, 26, 32, 0.85);
       border: 1px dashed rgba(255, 255, 255, 0.18);
       border-radius: 4px;
       color: rgba(232, 234, 237, 0.7);
-      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     .ss-btn {
