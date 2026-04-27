@@ -16,8 +16,8 @@ import {
   MEMORY_EVENT_TYPES,
   type MemoryEvent,
 } from "../state/entities/living_entity";
-import { ITEM_DEFS } from "../state/items";
 import { Villager } from "../state/entities/villager";
+import { ITEM_DEFS } from "../state/items";
 import {
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_SEED,
@@ -157,13 +157,18 @@ const JOB: DetailSection = {
   render: (e) => {
     const v = e as Villager;
     const stateName = v.jobs.currentStateName();
+    const taskKind = v.jobs.currentTaskKind();
     const jobId = v.jobs.currentJobId();
     const phase = v.jobs.currentPhase();
     const waypoints = v.jobs.currentWaypoints();
+    // Compose state + task kind into one line so the panel reads
+    // "Walking · depositing" mid-injection — clearer than two rows.
+    const stateLabel = taskKind ? `${stateName} · ${taskLabel(taskKind)}` : stateName;
     const out = [
-      row("State", stateName),
+      row("State", stateLabel),
       row("Water reserve", `${v.waterReserve}/5`),
       row("Carrying", carriedSummary(v)),
+      row("Weight", `${formatWeight(v.carriedWeight())}/${formatWeight(v.maxCarryWeight)} kg`),
     ];
     if (jobId !== null) out.push(row("Job id", `#${jobId}`));
     if (phase !== null) out.push(row("Phase", phase));
@@ -174,6 +179,17 @@ const JOB: DetailSection = {
     return out.join("");
   },
 };
+
+function taskLabel(kind: "job" | "deposit"): string {
+  return kind === "deposit" ? "depositing" : "working";
+}
+
+// Render an integer deci-weight (×10) as a decimal string. 100 → "10.0".
+function formatWeight(deci: number): string {
+  const whole = Math.floor(deci / 10);
+  const frac = deci % 10;
+  return `${whole}.${frac}`;
+}
 
 const SECTIONS: DetailSection[] = [
   IDENTITY,
@@ -187,7 +203,7 @@ const SECTIONS: DetailSection[] = [
 
 function carriedSummary(v: Villager): string {
   const parts: string[] = [];
-  for (const [item, count] of v.carriedItems) parts.push(`${count}×#${item}`);
+  for (const [item, count] of v.carriedItems) parts.push(`${count}× ${itemName(item)}`);
   return parts.length === 0 ? "—" : parts.join(", ");
 }
 

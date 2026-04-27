@@ -3,14 +3,14 @@
 // soft-colliding entities actually unwinds after the ghost threshold.
 
 import { describe, expect, test } from "vitest";
+import type { EntityTickContext } from "./entity";
 import {
-  effectiveSeparationRadius,
   EntityManager,
+  effectiveSeparationRadius,
   SEPARATION_GHOST_START_SEC,
   SEPARATION_RADIUS,
   SEPARATION_RELAX_START_SEC,
 } from "./entity_manager";
-import type { EntityTickContext } from "./entity";
 import { Villager } from "./villager";
 
 const NEVER_STUCK = Number.NEGATIVE_INFINITY;
@@ -48,18 +48,8 @@ describe("resolveSeparation honours per-entity stuck timers", () => {
     // Place two settlers at the exact same tile. Without ghost mode the
     // separation pass would push them apart by SEPARATION_RADIUS / 2.
     const m = new EntityManager();
-    const a = new Villager(
-      1,
-      { chunkX: 0, chunkY: 0, localX: 5, localY: 5 },
-      "A",
-      { x: 5, y: 5 },
-    );
-    const b = new Villager(
-      2,
-      { chunkX: 0, chunkY: 0, localX: 5, localY: 5 },
-      "B",
-      { x: 5, y: 5 },
-    );
+    const a = new Villager(1, { chunkX: 0, chunkY: 0, localX: 5, localY: 5 }, "A", { x: 5, y: 5 });
+    const b = new Villager(2, { chunkX: 0, chunkY: 0, localX: 5, localY: 5 }, "B", { x: 5, y: 5 });
     a.stuckSince = 0;
     b.stuckSince = 0;
     m.add(a);
@@ -84,18 +74,8 @@ describe("resolveSeparation honours per-entity stuck timers", () => {
 
   test("two non-stuck settlers at same tile DO get pushed apart", () => {
     const m = new EntityManager();
-    const a = new Villager(
-      1,
-      { chunkX: 0, chunkY: 0, localX: 5, localY: 5 },
-      "A",
-      { x: 5, y: 5 },
-    );
-    const b = new Villager(
-      2,
-      { chunkX: 0, chunkY: 0, localX: 5, localY: 5 },
-      "B",
-      { x: 5, y: 5 },
-    );
+    const a = new Villager(1, { chunkX: 0, chunkY: 0, localX: 5, localY: 5 }, "A", { x: 5, y: 5 });
+    const b = new Villager(2, { chunkX: 0, chunkY: 0, localX: 5, localY: 5 }, "B", { x: 5, y: 5 });
     // stuckSince stays at NEVER_STUCK → full radius.
     m.add(a);
     m.add(b);
@@ -120,18 +100,11 @@ describe("resolveSeparation honours per-entity stuck timers", () => {
     // This is the design: ghost mode lets *the knot* dissolve regardless
     // of which side is ghosted.
     const m = new EntityManager();
-    const a = new Villager(
-      1,
-      { chunkX: 0, chunkY: 0, localX: 5, localY: 5 },
-      "A",
-      { x: 5, y: 5 },
-    );
-    const b = new Villager(
-      2,
-      { chunkX: 0, chunkY: 0, localX: 5.05, localY: 5 },
-      "B",
-      { x: 5, y: 5 },
-    );
+    const a = new Villager(1, { chunkX: 0, chunkY: 0, localX: 5, localY: 5 }, "A", { x: 5, y: 5 });
+    const b = new Villager(2, { chunkX: 0, chunkY: 0, localX: 5.05, localY: 5 }, "B", {
+      x: 5,
+      y: 5,
+    });
     a.stuckSince = 0;
     m.add(a);
     m.add(b);
@@ -153,12 +126,7 @@ describe("resolveSeparation honours per-entity stuck timers", () => {
     // villager_jobs.test.ts already covers it inside a job, but this
     // confirms the contract independently: setting stuckSince to a
     // value, then assigning -Infinity, restores full radius.
-    const e = new Villager(
-      99,
-      { chunkX: 0, chunkY: 0, localX: 1, localY: 1 },
-      "C",
-      { x: 1, y: 1 },
-    );
+    const e = new Villager(99, { chunkX: 0, chunkY: 0, localX: 1, localY: 1 }, "C", { x: 1, y: 1 });
     e.stuckSince = 0;
     expect(effectiveSeparationRadius(e.stuckSince, SEPARATION_GHOST_START_SEC + 5)).toBe(0);
     e.stuckSince = Number.NEGATIVE_INFINITY;

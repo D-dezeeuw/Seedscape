@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 import type { InstancedTileRenderer } from "../rendering/instanced_tile_renderer";
 import type { GenerationPool } from "../workers/generation_pool";
 import { allocChunkData, type ChunkData, TILES_PER_CHUNK } from "./chunk";
-import { type ChunkManagerHooks, ChunkManager } from "./chunk_manager";
+import { ChunkManager, type ChunkManagerHooks } from "./chunk_manager";
 import { chunkKey } from "./coords";
 
 // Fake renderer: tracks which chunks have GPU buffers via a Set.

@@ -28,22 +28,18 @@ describe("entity persistence round-trip", () => {
   });
 
   test("villager gender round-trips", () => {
-    const v = new Villager(
-      8,
-      { chunkX: 0, chunkY: 0, localX: 0, localY: 0 },
-      "Maria",
-      { x: 0, y: 0 },
-    );
+    const v = new Villager(8, { chunkX: 0, chunkY: 0, localX: 0, localY: 0 }, "Maria", {
+      x: 0,
+      y: 0,
+    });
     v.gender = "female";
     const r = deserializeEntity(serializeEntity(v)) as Villager;
     expect(r.gender).toBe("female");
 
-    const m = new Villager(
-      9,
-      { chunkX: 0, chunkY: 0, localX: 0, localY: 0 },
-      "Jan",
-      { x: 0, y: 0 },
-    );
+    const m = new Villager(9, { chunkX: 0, chunkY: 0, localX: 0, localY: 0 }, "Jan", {
+      x: 0,
+      y: 0,
+    });
     m.gender = "male";
     expect((deserializeEntity(serializeEntity(m)) as Villager).gender).toBe("male");
   });

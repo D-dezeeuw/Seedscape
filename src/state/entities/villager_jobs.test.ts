@@ -411,6 +411,124 @@ describe("VillagerJobController integration", () => {
     expect(planted?.subjectId).toBe(ITEM_IDS.WHEAT_SEED);
   });
 
+  test("auto-deposit task fires when settler is overweight at idle", async () => {
+    // Setup: a crate at (8,8) and a settler pre-loaded with wheat past the
+    // overweight threshold. No jobs on the board — the controller should
+    // refuse to claim and instead inject a deposit task that walks to the
+    // crate and drains the inventory.
+    //
+    // Home anchored at (12,12) (centre of the chunk) so the wander radius
+    // (6) keeps the settler inside chunk (0,0) — pathfinder grid is one
+    // chunk and any out-of-bounds start tile yields "path not found",
+    // which would mask the injection by popping the task immediately.
+    world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(8, 8)] = CRATE_TILE;
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(42, { chunkX: 0, chunkY: 0, localX: 12.5, localY: 12.5 }, "X", {
+      x: 12,
+      y: 12,
+    });
+    // 8 wheat = 80 weight, past the 70% threshold of the 100-cap default.
+    v.pickup(ITEM_IDS.WHEAT, 8);
+    expect(v.isOverweight()).toBe(true);
+
+    let time = 0;
+    let sawDepositTask = false;
+    for (let i = 0; i < 400; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (v.jobs.currentTaskKind() === "deposit") sawDepositTask = true;
+      if (v.jobs.isIdle() && v.carriedItems.size === 0) break;
+    }
+
+    expect(sawDepositTask).toBe(true);
+    expect(board.size()).toBe(0);
+    expect(v.carriedItems.size).toBe(0);
+    expect(world.crates.countAt(8, 8, ITEM_IDS.WHEAT)).toBe(8);
+    expect(v.jobs.isIdle()).toBe(true);
+  });
+
+  test("auto-deposit respects Job.holdItems for non-default-sticky items", async () => {
+    // Settler is overweight with FLOUR (no defaultSticky). With NO claimed
+    // job declaring flour as held, the deposit injection runs. With a
+    // claimed job that has holdItems=[FLOUR], the same scenario must
+    // skip flour and refuse to inject — this is the foundation Phase 8
+    // hauling jobs will lean on.
+    world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(8, 8)] = CRATE_TILE;
+    const { services, board } = makeServices(world);
+    await flush();
+
+    const v = new Villager(99, { chunkX: 0, chunkY: 0, localX: 12.5, localY: 12.5 }, "F", {
+      x: 12,
+      y: 12,
+    });
+    // 4 flour = 100 weight (max), well past the 70 threshold.
+    v.pickup(ITEM_IDS.FLOUR, 4);
+    expect(v.isOverweight()).toBe(true);
+
+    // Simulate a claimed haul job with holdItems=[FLOUR]. We use
+    // HARVEST_CROP as the kind (any kind works for this test) and
+    // pre-claim it so the controller doesn't try to start it.
+    const heldJobId = board.enqueue({
+      kind: JOB_KIND_HARVEST_CROP,
+      source: { x: 12, y: 12 },
+      target: { x: 12, y: 12 },
+      priority: 1,
+      payload: 0,
+      holdItems: [ITEM_IDS.FLOUR],
+    });
+    // Mark as claimed by THIS settler so stickyItemsFor sees it.
+    const heldJob = board.get(heldJobId)!;
+    heldJob.claimedBy = v.id;
+
+    let time = 0;
+    let sawDepositTask = false;
+    for (let i = 0; i < 200; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (v.jobs.currentTaskKind() === "deposit") sawDepositTask = true;
+    }
+
+    // Sticky from the held job → deposit must NOT fire even though the
+    // settler is overweight.
+    expect(sawDepositTask).toBe(false);
+    expect(v.carriedItems.get(ITEM_IDS.FLOUR)).toBe(4);
+  });
+
+  test("auto-deposit does not fire when only seeds (sticky) are carried", async () => {
+    // Same scenario but the settler is hauling seeds (sticky) — no deposit
+    // task should be injected. With no jobs claimable the settler simply
+    // wanders and keeps the seed for a future PLANT_SEED.
+    world.chunks.get(chunkKey(0, 0))!.data.tileId[tileIndex(8, 8)] = CRATE_TILE;
+    const { services } = makeServices(world);
+    await flush();
+
+    const v = new Villager(43, { chunkX: 0, chunkY: 0, localX: 12.5, localY: 12.5 }, "Y", {
+      x: 12,
+      y: 12,
+    });
+    // Cap is 100, seeds weigh 1 → easy to push past 70 by raising the
+    // count. Still sticky → no deposit injection.
+    v.pickup(ITEM_IDS.WHEAT_SEED, 90);
+    expect(v.isOverweight()).toBe(true);
+
+    let time = 0;
+    let sawDepositTask = false;
+    // Run long enough for the stagger window + several backoffs to elapse.
+    for (let i = 0; i < 200; i++) {
+      time += 0.1;
+      v.tick(makeCtx(time, services));
+      await flush();
+      if (v.jobs.currentTaskKind() === "deposit") sawDepositTask = true;
+    }
+
+    expect(sawDepositTask).toBe(false);
+    expect(v.carriedItems.get(ITEM_IDS.WHEAT_SEED)).toBe(90);
+  });
+
   test("stuck settler re-plans once before cancelling", async () => {
     // Reproduces the deadlock case: settler walking toward a goal stalls
     // (we simulate by setting dt=0 once it's in walking state). At
@@ -425,12 +543,10 @@ describe("VillagerJobController integration", () => {
 
     const { services, board, client } = makeServices(world);
     await flush();
-    const v = new Villager(
-      77,
-      { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 },
-      "Z",
-      { x: 1, y: 1 },
-    );
+    const v = new Villager(77, { chunkX: 0, chunkY: 0, localX: 1.5, localY: 1.5 }, "Z", {
+      x: 1,
+      y: 1,
+    });
 
     board.enqueue({
       kind: 3, // HARVEST_CROP

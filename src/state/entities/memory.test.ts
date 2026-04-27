@@ -5,11 +5,7 @@
 // (via end-to-end harvest/water/plant).
 
 import { describe, expect, test } from "vitest";
-import {
-  MEMORY_EVENT_TYPES,
-  recordMemory,
-  SHORT_TERM_CAPACITY,
-} from "./living_entity";
+import { MEMORY_EVENT_TYPES, recordMemory, SHORT_TERM_CAPACITY } from "./living_entity";
 import { Villager } from "./villager";
 
 const POS = { chunkX: 0, chunkY: 0, localX: 0.5, localY: 0.5 };

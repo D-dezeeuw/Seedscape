@@ -7,7 +7,6 @@
 // villagers diverge and replays are reproducible.
 
 import { mulberry32 } from "../../shared/rng";
-import type { ItemId } from "../items";
 import {
   type EntityPosition,
   type EntityTickContext,
@@ -31,9 +30,12 @@ const PICK_ATTEMPTS = 8;
 // WATER_CROP. MAX is small so settlers actually have to walk back for refills
 // — that's the whole point of the haul job existing.
 export const MAX_WATER_RESERVE = 5;
-// Inventory cap: total items, summed across types. Settlers carry a few
-// crops between harvest and the nearest crate; not a backpack.
-export const MAX_CARRIED_ITEMS = 10;
+
+// Villager-specific carry cap (deci-units). 100 = ≈10 wheat / 4 flour /
+// 16 bread — enough for one harvest round trip, not enough to skip
+// crate visits entirely. Tuned in concert with item weights in items.ts;
+// raise both together if you find settlers depositing too eagerly.
+const VILLAGER_MAX_CARRY_WEIGHT = 100;
 
 export class Villager extends LivingEntity {
   readonly type: EntityType = "villager";
@@ -52,10 +54,6 @@ export class Villager extends LivingEntity {
   // Water reserve in 0..MAX_WATER_RESERVE. Mutated by HAUL_WATER (refill at
   // a water tile) and WATER_CROP (drain into a thirsty tile).
   waterReserve: number = 0;
-  // Items the settler is carrying between harvest and crate. Keyed flat;
-  // matches Inventory's shape so any future "deposit all to inventory" path
-  // can reuse the same iteration. Total count capped at MAX_CARRIED_ITEMS.
-  readonly carriedItems = new Map<ItemId, number>();
 
   private wanderTargetX: number;
   private wanderTargetY: number;
@@ -79,40 +77,13 @@ export class Villager extends LivingEntity {
     this.homeWorldTileX = homeWorldTile.x;
     this.homeWorldTileY = homeWorldTile.y;
     this.availableActions = VILLAGER_AVAILABLE_ACTIONS;
+    // Settlers carry produce; other entity classes (animals, mounts)
+    // override this in their own constructors.
+    this.maxCarryWeight = VILLAGER_MAX_CARRY_WEIGHT;
     // Initial target = current position. First tick will pick a real one.
     this.wanderTargetX = this.worldX();
     this.wanderTargetY = this.worldY();
     this.idleUntilTime = 0;
-  }
-
-  // Total items carried across all types — used by the carry-cap check.
-  carriedTotal(): number {
-    let n = 0;
-    for (const c of this.carriedItems.values()) n += c;
-    return n;
-  }
-
-  // Try to add `n` of `item`, clamped by MAX_CARRIED_ITEMS. Returns the
-  // count actually added.
-  pickup(item: ItemId, n: number): number {
-    if (n <= 0) return 0;
-    const room = Math.max(0, MAX_CARRIED_ITEMS - this.carriedTotal());
-    const taken = Math.min(n, room);
-    if (taken === 0) return 0;
-    this.carriedItems.set(item, (this.carriedItems.get(item) ?? 0) + taken);
-    return taken;
-  }
-
-  // Remove and return up to `n` of `item`. Returns the count actually given.
-  drop(item: ItemId, n: number): number {
-    if (n <= 0) return 0;
-    const have = this.carriedItems.get(item) ?? 0;
-    const taken = Math.min(have, n);
-    if (taken === 0) return 0;
-    const remaining = have - taken;
-    if (remaining === 0) this.carriedItems.delete(item);
-    else this.carriedItems.set(item, remaining);
-    return taken;
   }
 
   tick(ctx: EntityTickContext): void {
