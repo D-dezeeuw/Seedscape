@@ -27,7 +27,18 @@ const CLICK_DRAG_TOLERANCE_PX = 4;
 // the UI grows a seed selector.
 const SEED_PRIORITY: ItemId[] = [ITEM_IDS.WHEAT_SEED, ITEM_IDS.CARROT_SEED, ITEM_IDS.CORN_SEED];
 
-function pickPlantSeed(inventory: Inventory, playerLevel: number): ItemId | null {
+function pickPlantSeed(
+  inventory: Inventory,
+  playerLevel: number,
+  preferred: ItemId | null,
+): ItemId | null {
+  // Honour the player's explicit selection from the seed-row UI when the
+  // pick is still valid (unlocked + in inventory). Falls back to the
+  // priority list so a stale or empty selection still does something
+  // sensible instead of silently no-op'ing.
+  if (preferred !== null && isSeedUnlocked(playerLevel, preferred) && inventory.has(preferred, 1)) {
+    return preferred;
+  }
   for (const seed of SEED_PRIORITY) {
     if (!isSeedUnlocked(playerLevel, seed)) continue;
     if (inventory.has(seed, 1)) return seed;
@@ -61,7 +72,7 @@ export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
       break;
     }
     case "plant": {
-      const seed = pickPlantSeed(deps.inventory, deps.player.level);
+      const seed = pickPlantSeed(deps.inventory, deps.player.level, deps.tool.selectedSeedId);
       if (!seed) return false;
       const def = cropForSeed(seed);
       if (!def) return false;

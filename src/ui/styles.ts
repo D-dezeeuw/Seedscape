@@ -53,18 +53,21 @@ export function injectUiStyles(): void {
       flex: 1 1 auto;
       min-height: 0;
     }
-    .ss-panel-close {
+    .ss-panel-close, .ss-panel-eye {
       background: transparent;
       border: none;
       color: #708090;
       font: inherit;
-      font-size: 16px;
       line-height: 1;
-      padding: 0 4px;
       cursor: pointer;
       border-radius: 3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-    .ss-panel-close:hover {
+    .ss-panel-close { font-size: 16px; padding: 0 4px; }
+    .ss-panel-eye { padding: 2px 4px; }
+    .ss-panel-close:hover, .ss-panel-eye:hover {
       color: #e8eaed;
       background: rgba(255,255,255,0.08);
     }
@@ -201,6 +204,25 @@ export function injectUiStyles(): void {
     }
     .ss-toolbar-windows .ss-btn {
       min-width: 80px;
+    }
+
+    /* Plant-tool seed selector — floats just above the toolbar
+       while the plant tool is active. Mirrors the toolbar's row
+       styling (dark backdrop + blur) so it visually belongs to
+       the toolbar group. */
+    .ss-plant-selector {
+      position: fixed;
+      bottom: 92px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 4px;
+      padding: 6px;
+      background: rgba(20, 26, 32, 0.92);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      backdrop-filter: blur(4px);
+      z-index: 10;
     }
 
     /* Possession contextual action panel — replaces the toolbar

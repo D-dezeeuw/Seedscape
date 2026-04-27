@@ -413,13 +413,15 @@ export class VillagerJobController {
       job.target = hit.standing;
     }
 
-    // PLANT_SEED claim: stamp the carried seed id into payload so
-    // actAtSource knows what to plant. We already filtered out
-    // PLANT_SEED above unless we're carrying a seed, so the lookup
-    // should always succeed; the explicit guard is here for the
-    // race where a sibling settler dropped our last seed mid-claim.
+    // PLANT_SEED claim: pick which seed to plant via the
+    // dominant-neighbour heuristic so adjacent crops stay homogeneous;
+    // stamp into payload so actAtSource knows what to plant. The
+    // controller already filtered out PLANT_SEED unless we're carrying
+    // a seed, so chooseSeedToPlant should be non-null. The explicit
+    // guard catches the race where a sibling settler dropped our last
+    // seed mid-claim.
     if (job.kind === JOB_KIND_PLANT_SEED) {
-      const seedId = carriedSeedId(v);
+      const seedId = chooseSeedToPlant(v, job.target, ctx.services);
       if (seedId === null) {
         board.release(job.id);
         this.scheduleRetry(v, ctx);
@@ -1259,6 +1261,64 @@ function carriedSeedId(v: Villager): ItemId | null {
     if (isSeedItem(item)) return item;
   }
   return null;
+}
+
+// Pick which carried seed to plant on `target`. Two-step heuristic:
+//   1. Look at the 3×3 neighbourhood (8 surrounding tiles, not the
+//      target itself). Count crop species. If a dominant species sits
+//      next door AND the settler carries its seed, plant the same
+//      species — keeps fields visually homogeneous.
+//   2. Otherwise, plant whichever carried seed the settler has most
+//      of, breaking ties by item-id order (deterministic).
+// Returns null only when the settler carries no seeds at all; the
+// caller (PLANT_SEED claim path) is gated on carriedSeedId so this is
+// effectively a non-null pick at runtime.
+function chooseSeedToPlant(
+  v: Villager,
+  target: { x: number; y: number },
+  services: EntityServices | undefined,
+): ItemId | null {
+  // Gather carried seed counts once — used by both the dominant-species
+  // tie-break and the carry-the-most fallback.
+  const carriedCounts = new Map<ItemId, number>();
+  for (const [item, count] of v.carriedItems) {
+    if (isSeedItem(item)) carriedCounts.set(item, count);
+  }
+  if (carriedCounts.size === 0) return null;
+
+  const tw = services?.tileWorld;
+  if (tw) {
+    const speciesCounts = new Map<ItemId, number>();
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const t = tw.readTile(target.x + dx, target.y + dy);
+        if (!t) continue;
+        const crop = cropForTile(t.tileId);
+        if (!crop) continue;
+        speciesCounts.set(crop.seedItem, (speciesCounts.get(crop.seedItem) ?? 0) + 1);
+      }
+    }
+    let bestSeed: ItemId | null = null;
+    let bestCount = 0;
+    for (const [seed, count] of speciesCounts) {
+      if (count > bestCount && carriedCounts.has(seed)) {
+        bestSeed = seed;
+        bestCount = count;
+      }
+    }
+    if (bestSeed !== null) return bestSeed;
+  }
+
+  let pick: ItemId | null = null;
+  let pickCount = 0;
+  for (const [seed, count] of carriedCounts) {
+    if (count > pickCount || (count === pickCount && pick !== null && seed < pick)) {
+      pick = seed;
+      pickCount = count;
+    }
+  }
+  return pick;
 }
 
 // Compute the union of every sticky item kind for a settler at this
