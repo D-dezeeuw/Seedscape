@@ -51,6 +51,9 @@ import {
 } from "./world/chunk";
 import { ChunkManager } from "./world/chunk_manager";
 import { chunkKey, visibleChunkRect } from "./world/coords";
+import { BuildingBufferStore } from "./world/farming/building_buffer";
+import { autoQueueFromBuffers, buildingOutputCap } from "./world/farming/building_buffer_tick";
+import { buildingForTile } from "./world/farming/building_registry";
 import { CrateStore } from "./world/farming/crate";
 import { restockAutoContainers } from "./world/farming/restock";
 import { applySimDelta } from "./world/farming/sim_pipeline";
@@ -159,6 +162,11 @@ async function bootstrap(): Promise<void> {
   const orders = new OrderBook(0);
   const entityManager = new EntityManager();
   const crates = new CrateStore();
+  // Phase 8: per-building input/output buffers. Settlers feed into the
+  // input side via FEED_BUILDING and haul from the output side via
+  // HAUL_OUTPUT; the auto-queue pass below drains input → metadata.queued
+  // so the existing sim-worker code path runs unchanged.
+  const buildingBuffers = new BuildingBufferStore();
   const jobBoard = new JobBoard();
   const jobEmitter = new JobEmitter({ board: jobBoard, chunks: chunkManager, crates });
 
@@ -418,6 +426,11 @@ async function bootstrap(): Promise<void> {
     // Auto-restock dispensers from the player's inventory once per sim
     // tick. Cheap (skips early when no auto-containers loaded).
     restockAutoContainers(chunkManager, inventory, crates);
+    // Phase 8: drain building input buffers into metadata.queued so the
+    // sim worker keeps using the queued counter as before. Skips early
+    // when no buffers have content. Runs before the chunk dispatch so a
+    // newly-fed building can start its cycle this tick.
+    autoQueueFromBuffers(chunkManager, buildingBuffers);
 
     for (const key of getSimulatableChunkKeys(chunkManager)) {
       if (inFlightKeys.has(key)) continue;
@@ -440,16 +453,38 @@ async function bootstrap(): Promise<void> {
               record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
             }
           }
-          // Apply production events to the player — but only if the tile
-          // is STILL the building the sim expected. If the player
-          // dismantled or replaced the building during sim flight, the
-          // cycle's output is forfeit (race-loss policy consistent with
-          // applySimDelta).
+          // Apply production events — but only if the tile is STILL the
+          // building the sim expected. If the player dismantled or
+          // replaced the building during sim flight, the cycle's output
+          // is forfeit (race-loss policy consistent with applySimDelta).
+          //
+          // Phase 8: output goes to the building's *output buffer*, not
+          // straight to player inventory. Settlers haul it via
+          // HAUL_OUTPUT; the player can also withdraw manually via the
+          // building window. Back-pressure: if the buffer is full, the
+          // overflow is forfeit and a future tick simply produces less
+          // because no input gets consumed (the cap halts cycles
+          // upstream too).
           for (const ev of result.delta.productionEvents) {
             const liveTileId = record.data.tileId[ev.tileIndex] ?? 0;
             if (liveTileId !== ev.expectedTileId) continue;
-            inventory.add(ev.itemId as never, ev.quantity);
-            player.addXp(ev.quantity * PRODUCTION_XP_PER_OUTPUT);
+            const def = buildingForTile(liveTileId);
+            if (!def) continue;
+            const lx = ev.tileIndex % CHUNK_SIZE;
+            const ly = Math.floor(ev.tileIndex / CHUNK_SIZE);
+            const wx = chunkX * CHUNK_SIZE + lx;
+            const wy = chunkY * CHUNK_SIZE + ly;
+            const stored = buildingBuffers.addOutput(
+              wx,
+              wy,
+              ev.itemId as ItemId,
+              ev.quantity,
+              buildingOutputCap(def.outputQuantity),
+            );
+            // XP credits ONLY for the units that landed in the buffer —
+            // overflow is back-pressured cargo, not work the player
+            // benefits from.
+            if (stored > 0) player.addXp(stored * PRODUCTION_XP_PER_OUTPUT);
           }
         })
         .catch((err) => {
