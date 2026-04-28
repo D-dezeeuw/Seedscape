@@ -4,6 +4,7 @@
 // (e.g. when a phase introduces new gameplay state worth poking at).
 
 import type { Camera } from "../input/camera";
+import { Chicken, Cow } from "../state/entities/animal";
 import type { EntityManager } from "../state/entities/entity_manager";
 import { pickFullName } from "../state/entities/names";
 import { Villager } from "../state/entities/villager";
@@ -21,6 +22,7 @@ import type { ChunkManager } from "../world/chunk_manager";
 import { SEED_DISPENSER_TILE_ID } from "../world/farming/container_registry";
 import { CRATE_TILE_ID, type CrateStore } from "../world/farming/crate";
 import { CROP_STAGE_HARVESTABLE } from "../world/farming/crop_registry";
+import { TILE_CHICKEN_PEN, TILE_COW_PEN } from "../world/farming/pen_registry";
 import { makeWindow, type UiWindow } from "./window";
 
 interface DebugPanelDeps {
@@ -47,8 +49,8 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     <h3>Debug</h3>
     <div class="ss-subhead">Coins</div>
     <div class="ss-debug-row">
-      <button class="ss-btn" data-act="coins-add">+10c</button>
-      <button class="ss-btn" data-act="coins-sub">-10c</button>
+      <button class="ss-btn" data-act="coins-add">+100c</button>
+      <button class="ss-btn" data-act="coins-sub">-100c</button>
     </div>
     <div class="ss-subhead">Wheat</div>
     <div class="ss-debug-row">
@@ -76,6 +78,7 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     <div class="ss-subhead">Stress test (Phase 7)</div>
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="stress-setup">Setup farm at camera</button>
+      <button class="ss-btn" data-act="stress-husbandry">Setup husbandry at camera</button>
     </div>
     <div class="ss-debug-row">
       <button class="ss-btn" data-act="spawn-25">+25 settlers</button>
@@ -106,10 +109,10 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
     if (!action) return;
     switch (action) {
       case "coins-add":
-        deps.player.addCoins(10);
+        deps.player.addCoins(100);
         return;
       case "coins-sub":
-        deps.player.spendCoins(10);
+        deps.player.spendCoins(100);
         return;
       case "wheat-add":
         deps.inventory.add(ITEM_IDS.WHEAT, 10);
@@ -163,6 +166,13 @@ export function createDebugPanel(deps: DebugPanelDeps): UiWindow {
         const placed = setupStressFarm(deps);
         deps.toast?.(
           `Stress farm: ${placed.crops} ripe + ${placed.tilled} empty tilled, ${placed.crates} crates, ${placed.dispensers} dispenser`,
+        );
+        return;
+      }
+      case "stress-husbandry": {
+        const placed = setupStressHusbandry(deps);
+        deps.toast?.(
+          `Husbandry: ${placed.chickens} chickens, ${placed.cows} cows, ${placed.crates} crate (feed: ${placed.feed})`,
         );
         return;
       }
@@ -286,6 +296,129 @@ function setupStressFarm(deps: DebugPanelDeps): {
     deps.chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
   }
   return { crops, tilled, crates, dispensers };
+}
+
+// Place a fully-stocked husbandry scenario near the camera: a 4×4
+// chicken pen, a 4×4 cow pen, and a Storage Crate pre-stocked with
+// animal feed. One animal spawns per pen tile (16 chickens + 16 cows)
+// so the autonomous FEED_ANIMAL / COLLECT_PRODUCE jobs immediately
+// have work — useful for stress-testing settler routing on the
+// animal-haul side of Phase 9.
+function setupStressHusbandry(deps: DebugPanelDeps): {
+  chickens: number;
+  cows: number;
+  crates: number;
+  feed: number;
+} {
+  const cx0 = Math.floor(deps.camera.x);
+  const cy0 = Math.floor(deps.camera.y);
+  const dirty = new Set<string>();
+
+  const writeTile = (wx: number, wy: number, tileId: number, state = 0): boolean => {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cy = Math.floor(wy / CHUNK_SIZE);
+    const rec = deps.chunkManager.peekChunk(cx, cy);
+    if (!rec) return false;
+    const lx = wx - cx * CHUNK_SIZE;
+    const ly = wy - cy * CHUNK_SIZE;
+    const i = tileIndex(lx, ly);
+    rec.data.tileId[i] = tileId;
+    rec.data.state[i] = state;
+    rec.data.metadata[i] = 0;
+    dirty.add(`${cx},${cy}`);
+    return true;
+  };
+
+  // Layout: 6×6 chicken pen left of camera, 6×6 cow pen right, crate
+  // between them. The bigger pens give animals room to wander (each
+  // tile holds at most one animal, but we deliberately leave most
+  // tiles empty so the residents have somewhere to roam).
+  const PEN_SIZE = 6;
+  const ANIMALS_PER_PEN = 8;
+  const chickenPenX = cx0 - 8; // top-left x of chicken 6×6
+  const chickenPenY = cy0 - 3;
+  const cowPenX = cx0 + 3; // top-left x of cow 6×6
+  const cowPenY = cy0 - 3;
+  const cratePos = { x: cx0, y: cy0 };
+
+  // Floor the surrounding area in grass first so settlers can navigate
+  // around the pens (pen tiles block walkability for settlers, but
+  // animals walk freely between same-species pen tiles).
+  for (let dy = -5; dy <= 5; dy++) {
+    for (let dx = -12; dx <= 12; dx++) {
+      writeTile(cx0 + dx, cy0 + dy, 10 /* dry_grass */);
+    }
+  }
+
+  // Place pen tiles for both species.
+  const chickenTiles: Array<{ x: number; y: number }> = [];
+  const cowTiles: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < PEN_SIZE; dy++) {
+    for (let dx = 0; dx < PEN_SIZE; dx++) {
+      const cwx = chickenPenX + dx;
+      const cwy = chickenPenY + dy;
+      if (writeTile(cwx, cwy, TILE_CHICKEN_PEN)) chickenTiles.push({ x: cwx, y: cwy });
+      const xwx = cowPenX + dx;
+      const xwy = cowPenY + dy;
+      if (writeTile(xwx, xwy, TILE_COW_PEN)) cowTiles.push({ x: xwx, y: xwy });
+    }
+  }
+
+  // Spawn the requested number of animals, skipping tiles in stride
+  // so they start spread across the pen rather than packed in a corner.
+  // Roaming logic does the rest at runtime.
+  const spawnAt = (
+    tile: { x: number; y: number },
+    species: "chicken" | "cow",
+  ): void => {
+    const id = deps.entityManager.allocateId();
+    const pos = {
+      chunkX: Math.floor(tile.x / CHUNK_SIZE),
+      chunkY: Math.floor(tile.y / CHUNK_SIZE),
+      localX: ((tile.x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE + 0.5,
+      localY: ((tile.y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE + 0.5,
+    };
+    const animal =
+      species === "chicken"
+        ? new Chicken(id, pos, { x: tile.x, y: tile.y })
+        : new Cow(id, pos, { x: tile.x, y: tile.y });
+    deps.entityManager.add(animal);
+  };
+
+  let chickens = 0;
+  let cows = 0;
+  const chickenStride = Math.max(1, Math.floor(chickenTiles.length / ANIMALS_PER_PEN));
+  for (let i = 0; i < ANIMALS_PER_PEN && i * chickenStride < chickenTiles.length; i++) {
+    const t = chickenTiles[i * chickenStride];
+    if (t) {
+      spawnAt(t, "chicken");
+      chickens++;
+    }
+  }
+  const cowStride = Math.max(1, Math.floor(cowTiles.length / ANIMALS_PER_PEN));
+  for (let i = 0; i < ANIMALS_PER_PEN && i * cowStride < cowTiles.length; i++) {
+    const t = cowTiles[i * cowStride];
+    if (t) {
+      spawnAt(t, "cow");
+      cows++;
+    }
+  }
+
+  // Storage crate sits between the pens, pre-stocked with enough animal
+  // feed to keep the loop running for several minutes of in-game time.
+  let crates = 0;
+  let feed = 0;
+  if (writeTile(cratePos.x, cratePos.y, CRATE_TILE_ID)) {
+    crates++;
+    deps.crates.deposit(cratePos.x, cratePos.y, ITEM_IDS.ANIMAL_FEED, 200);
+    feed = 200;
+  }
+
+  for (const key of dirty) {
+    const [cx, cy] = key.split(",").map(Number) as [number, number];
+    deps.chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
+  }
+  return { chickens, cows, crates, feed };
 }
 
 function spawnSettlersAroundCamera(deps: DebugPanelDeps, count: number): void {

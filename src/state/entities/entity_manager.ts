@@ -50,10 +50,17 @@ export function effectiveSeparationRadius(stuckSince: number, time: number): num
   return 0; // ghost mode
 }
 
+// Notification when a LivingEntity dies (any vital hit 0). Wired by
+// main.ts to drive a toast and any future relationship/grief logic.
+// Fires *before* the entity is removed from the manager so the
+// callback can read final state (id, name, position).
+export type DeathListener = (entity: LivingEntity) => void;
+
 export class EntityManager {
   private nextId = 1;
   private readonly entities = new Map<number, Entity>();
   private readonly listeners = new Set<EntityListener>();
+  private readonly deathListeners = new Set<DeathListener>();
   // Pooled list used to snapshot the entity set at the start of each tick.
   // Iterating Map.values() during ticks is fragile: a tick that adds or
   // removes entities (Phase 7's job system spawns / despawns drone units,
@@ -131,8 +138,27 @@ export class EntityManager {
       if (!this.entities.has(e.id)) continue;
       e.tick(ctx);
     }
+    // Phase 10.1 death sweep: any LivingEntity whose vitals crashed
+    // gets removed + announced. Done after all ticks so a settler that
+    // died mid-tick doesn't keep ticking; done before resolveSeparation
+    // so dead bodies don't push the living around.
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i] as Entity;
+      if (!this.entities.has(e.id)) continue;
+      if (e instanceof LivingEntity && e.isDead()) {
+        for (const cb of this.deathListeners) cb(e);
+        this.entities.delete(e.id);
+        this.fire();
+      }
+    }
     list.length = 0; // release references — entities held only briefly
     this.resolveSeparation(ctx);
+  }
+
+  // Subscribe to death events. Returns the unsubscribe function.
+  onDeath(cb: DeathListener): () => void {
+    this.deathListeners.add(cb);
+    return () => this.deathListeners.delete(cb);
   }
 
   // Spatial-hashed push-apart pass. Buckets every soft-colliding entity
@@ -218,11 +244,11 @@ export class EntityManager {
 
     const ax = a.worldX() + ux * push;
     const ay = a.worldY() + uy * push;
-    if (ctx.isWalkable(Math.floor(ax), Math.floor(ay))) a.setWorldPosition(ax, ay);
+    if (a.canEnter(Math.floor(ax), Math.floor(ay), ctx)) a.setWorldPosition(ax, ay);
 
     const bx = b.worldX() - ux * push;
     const by = b.worldY() - uy * push;
-    if (ctx.isWalkable(Math.floor(bx), Math.floor(by))) b.setWorldPosition(bx, by);
+    if (b.canEnter(Math.floor(bx), Math.floor(by), ctx)) b.setWorldPosition(bx, by);
   }
 
   allocateId(): number {

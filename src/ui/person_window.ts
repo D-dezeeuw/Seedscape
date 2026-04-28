@@ -19,6 +19,8 @@ import {
 import { Villager } from "../state/entities/villager";
 import { ITEM_DEFS } from "../state/items";
 import {
+  JOB_KIND_COLLECT_PRODUCE,
+  JOB_KIND_FEED_ANIMAL,
   JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_OUTPUT,
@@ -108,8 +110,12 @@ const NEEDS: DetailSection = {
   applies: (e) => e instanceof LivingEntity,
   render: (e) => {
     const n = (e as LivingEntity).needs;
+    // Hunger has a live bar in Phase 10.1 because it's the only need
+    // that actually decays + can kill the entity. The other needs are
+    // placeholder values per docs/18 and stay full until 10.2 brings
+    // them online.
     return [
-      row("Hunger", `${n.hunger}/255`),
+      needBar("Hunger", n.hunger),
       row("Sleep", `${n.sleep}/255`),
       row("Cleanliness", `${n.cleanliness}/255`),
       row("Toilet", `${n.toilet}/255`),
@@ -118,6 +124,19 @@ const NEEDS: DetailSection = {
     ].join("");
   },
 };
+
+function needBar(label: string, value: number): string {
+  const clamped = Math.max(0, Math.min(255, Math.floor(value)));
+  const pct = Math.round((clamped / 255) * 100);
+  // Colour band: red below ~20%, amber up to ~40%, green above —
+  // mirrors the hungry-threshold (40%) so a player sees the bar shift
+  // colour exactly when the eat-task injection kicks in.
+  const tone = clamped < 51 ? "ss-need-low" : clamped < 102 ? "ss-need-mid" : "ss-need-high";
+  return (
+    `<div class="ss-row"><span>${label}</span><span class="ss-need-value">${clamped}/255</span></div>` +
+    `<div class="ss-need-bar"><div class="ss-need-bar-fill ${tone}" style="width: ${pct}%"></div></div>`
+  );
+}
 
 const TRAITS: DetailSection = {
   title: "Traits",
@@ -185,8 +204,10 @@ const JOB: DetailSection = {
   },
 };
 
-function taskLabel(kind: "job" | "deposit"): string {
-  return kind === "deposit" ? "depositing" : "working";
+function taskLabel(kind: "job" | "deposit" | "eat"): string {
+  if (kind === "deposit") return "depositing";
+  if (kind === "eat") return "eating";
+  return "working";
 }
 
 // Render an integer deci-weight (×10) as a decimal string. 100 → "10.0".
@@ -230,6 +251,10 @@ export function jobKindLabel(kind: JobKind): string {
       return "Feed building";
     case JOB_KIND_HAUL_OUTPUT:
       return "Haul output";
+    case JOB_KIND_FEED_ANIMAL:
+      return "Feed animal";
+    case JOB_KIND_COLLECT_PRODUCE:
+      return "Collect produce";
   }
 }
 

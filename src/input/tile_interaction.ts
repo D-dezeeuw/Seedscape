@@ -13,6 +13,7 @@ import type { ChunkManager } from "../world/chunk_manager";
 import { dismantleBuilding, enqueueJob, setBuildingTile } from "../world/farming/building_actions";
 import { buildingForTile } from "../world/farming/building_registry";
 import { cropForSeed } from "../world/farming/crop_registry";
+import { penForTile, setPenTile } from "../world/farming/pen_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
 import { type PickResult, pickTile } from "./picker";
@@ -94,19 +95,34 @@ export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
           deps.inventory.add(result.produceItem, result.yield);
           deps.player.addXp(result.yield * HARVEST_XP_PER_YIELD);
         }
+        // Phase 10.1: every harvest drops a small random seed bundle
+        // so the farm can sustain itself without buying every cycle.
+        if (result.seedItem && result.seedYield) {
+          deps.inventory.add(result.seedItem, result.seedYield);
+        }
         edited = true;
       }
       break;
     }
     case "build": {
-      const buildingId = deps.tool.selectedBuildingId;
-      if (buildingId == null) return false;
-      const def = buildingForTile(buildingId);
-      if (!def) return false;
-      if (!deps.player.spendCoins(def.placementCost)) return false;
-      const result = setBuildingTile(record.data, pick.localX, pick.localY, def);
-      if (!result.applied) {
-        deps.player.addCoins(def.placementCost);
+      const placeId = deps.tool.selectedBuildingId;
+      if (placeId == null) return false;
+      // The build tool is shared by buildings (200-299) and animal pens
+      // (400-499) — same UX flow, same placement cost mechanic, just two
+      // different registries.
+      const buildingDef = buildingForTile(placeId);
+      const penDef = buildingDef ? null : penForTile(placeId);
+      if (!buildingDef && !penDef) return false;
+      const cost = buildingDef?.placementCost ?? penDef?.placementCost ?? 0;
+      if (!deps.player.spendCoins(cost)) return false;
+      let placed = false;
+      if (buildingDef) {
+        placed = setBuildingTile(record.data, pick.localX, pick.localY, buildingDef).applied;
+      } else if (penDef) {
+        placed = setPenTile(record.data, pick.localX, pick.localY, penDef);
+      }
+      if (!placed) {
+        deps.player.addCoins(cost);
         return false;
       }
       edited = true;
@@ -135,7 +151,16 @@ export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
   }
 
   if (edited) {
-    record.flags |= CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION;
+    // Route through markDirty so the chunk-mutated hook fires —
+    // pathfinding mirrors get refreshed (settlers must route around
+    // newly-placed buildings / pens) and the autosave's dirty-set
+    // grows. Direct flag mutation skipped both, which silently lost
+    // pens to a quick reload before the next 30s autosave window.
+    deps.chunkManager.markDirty(
+      pick.chunkX,
+      pick.chunkY,
+      CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION,
+    );
     deps.onEdit?.(pick.chunkX, pick.chunkY);
   }
   return edited;

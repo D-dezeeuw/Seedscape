@@ -45,7 +45,6 @@ in vec2  v_uv;
 in float v_stateFlags;
 
 uniform sampler2D u_atlas;
-uniform float     u_time;
 
 out vec4 fragColor;
 
@@ -62,9 +61,18 @@ void main() {
     color.rgb = mix(color.rgb, vec3(gray), 0.7);
   }
 
+  // Wet soil treatment. Crop sprites bake the soil into the same texel
+  // grid as the foliage, so a uniform darken would dim leaves too. The
+  // luminance mask spares bright pixels: low-luma (soil tones) get the
+  // full wet effect, high-luma (foliage / blossoms) pass through.
+  // smoothstep gives a soft transition rather than a hard cut so a
+  // half-bright stem doesn't band noticeably.
   if (watered == 1) {
-    float shimmer = 0.05 * sin(u_time * 3.0 + v_uv.y * 10.0);
-    color.b += shimmer;
+    float luma = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    float soilMask = 1.0 - smoothstep(0.35, 0.55, luma);
+    // Darken (×0.65) and a gentle contrast push around the soil mid-tone.
+    vec3 wetSoil = (color.rgb * 0.65 - 0.4) * 1.15 + 0.4;
+    color.rgb = mix(color.rgb, wetSoil, soilMask);
   }
 
   if (selected == 1) {

@@ -38,8 +38,13 @@ import type { PossessionController } from "./possession";
 //   the player feeding/collecting through their inventory. Snapshots gain
 //   `buildingBuffers`; missing snapshots load as empty (any prior queued
 //   cycles drain naturally and the player can use the building window).
+// 10 → 11 (Phase 9): farm animals (Chicken, Cow) ship as concrete species.
+//   Their entity payload (`animal` field on SavedEntity) carries species +
+//   pen anchor + hunger + produceProgress. Older saves never wrote that
+//   field — the deserializer threw on the abstract case — so bumping
+//   forces a clean v11 load instead of a half-deserialized world.
 // Older saves are dropped on load.
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 export interface SavedChunk {
   chunkX: number;

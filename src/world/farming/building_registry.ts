@@ -101,6 +101,37 @@ const PHASE_4_BUILDINGS: ReadonlyArray<BuildingDef> = [
     unlockId: "building.seed_dispenser",
     passive: true,
   },
+  // Phase 9 irrigation. Both passive — no input/output, no queue. The
+  // sim worker scans these tiles each tick and raises water levels on
+  // farmable tiles within the radius (see auto-water tick).
+  {
+    id: 230,
+    name: "well",
+    displayName: "Well",
+    inputItem: ITEM_IDS.WHEAT,
+    inputQuantity: 0,
+    outputItem: ITEM_IDS.WHEAT,
+    outputQuantity: 0,
+    cycleTime: 0,
+    queueSize: 0,
+    placementCost: 100,
+    unlockId: "building.well",
+    passive: true,
+  },
+  {
+    id: 231,
+    name: "sprinkler",
+    displayName: "Sprinkler",
+    inputItem: ITEM_IDS.WHEAT,
+    inputQuantity: 0,
+    outputItem: ITEM_IDS.WHEAT,
+    outputQuantity: 0,
+    cycleTime: 0,
+    queueSize: 0,
+    placementCost: 250,
+    unlockId: "building.sprinkler",
+    passive: true,
+  },
 ];
 
 const BY_ID = new Map<number, BuildingDef>(PHASE_4_BUILDINGS.map((b) => [b.id, b]));

@@ -68,6 +68,10 @@ export interface EntityServices {
   // building-hauling can omit it.
   buildingBuffers?: import("../../world/farming/building_buffer").BuildingBufferStore;
   tileWorld?: TileWorldAccess;
+  // Phase 9.2: entity manager. Animal-touching jobs (FEED_ANIMAL,
+  // COLLECT_PRODUCE) need to look up the resident ProducerAnimal at a
+  // pen anchor. Optional — tests that don't exercise pen jobs omit it.
+  entityManager?: import("./entity_manager").EntityManager;
 }
 
 // Minimal tile-world surface used by the state machine. Implemented by
@@ -80,11 +84,19 @@ export interface TileWorldAccess {
     worldTileY: number,
   ): { tileId: number; state: number; metadata: number } | null;
   // Apply a tile action by world coords. Returns whether it applied.
-  // Implementations mark the chunk dirty internally.
+  // Implementations mark the chunk dirty internally. Phase 10.1 —
+  // successful harvests also report a small seed drop (seedItem +
+  // seedYield) so the caller can replant without buying every cycle.
   harvestAt(
     worldTileX: number,
     worldTileY: number,
-  ): { applied: boolean; produceItem?: number; yield?: number };
+  ): {
+    applied: boolean;
+    produceItem?: number;
+    yield?: number;
+    seedItem?: number;
+    seedYield?: number;
+  };
   waterAt(worldTileX: number, worldTileY: number): boolean;
   // Plant a seed on an empty tilled tile. seedItem is the ItemId from
   // the player's seed range (600..699). Returns whether it applied

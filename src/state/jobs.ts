@@ -42,6 +42,15 @@ export const JOB_KIND_FEED_BUILDING = 6;
 // buffer and deliver to a crate. Payload is the output ItemId; same
 // resolution pattern as FEED_BUILDING.
 export const JOB_KIND_HAUL_OUTPUT = 7;
+// FEED_ANIMAL (Phase 9.2): take animalFeed from a crate and deliver to
+// a pen tile. Payload is the feed ItemId; on arrival the settler
+// consumes one feed and raises the resident animal's hunger. Same
+// claim-time source/target rewrite as FEED_BUILDING.
+export const JOB_KIND_FEED_ANIMAL = 8;
+// COLLECT_PRODUCE (Phase 9.2): take produce items from a pen's output
+// buffer and deliver to a crate. Payload is the produce ItemId; same
+// pattern as HAUL_OUTPUT but anchored on a pen tile.
+export const JOB_KIND_COLLECT_PRODUCE = 9;
 export type JobKind =
   | typeof JOB_KIND_HAUL_WATER
   | typeof JOB_KIND_WATER_CROP
@@ -49,7 +58,9 @@ export type JobKind =
   | typeof JOB_KIND_PLANT_SEED
   | typeof JOB_KIND_HAUL_SEED
   | typeof JOB_KIND_FEED_BUILDING
-  | typeof JOB_KIND_HAUL_OUTPUT;
+  | typeof JOB_KIND_HAUL_OUTPUT
+  | typeof JOB_KIND_FEED_ANIMAL
+  | typeof JOB_KIND_COLLECT_PRODUCE;
 
 export interface Job {
   id: number;
