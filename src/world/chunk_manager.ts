@@ -110,15 +110,19 @@ export class ChunkManager {
 
   // Mark dirty for both render (next update will reupload) and simulation
   // (next save will persist). Used by tile actions and sim-result handling.
-  // The mutated hook fires on DIRTY_SIMULATION transitions (low → high) so
-  // walkability mirrors don't get spammed for repeat marks within one frame —
-  // the hook fires once per logical mutation, not once per call.
+  //
+  // The mutated hook fires every time DIRTY_SIMULATION is requested,
+  // not just on transitions: chunks that are continuously sim-active
+  // (sim worker keeps re-marking them on each tick) would otherwise
+  // never see a hook fire after their first mutation, leaving the
+  // pathfinding mask stale when the player or a debug helper later
+  // changes walkability on the same chunk. The hook does an O(1024)
+  // mask rebuild — cheap enough to fire freely.
   markDirty(chunkX: number, chunkY: number, flags = CHUNK_FLAG_DIRTY_RENDER): void {
     const record = this.peekChunk(chunkX, chunkY);
     if (!record) return;
-    const wasSimDirty = (record.flags & CHUNK_FLAG_DIRTY_SIMULATION) !== 0;
     record.flags |= flags;
-    if (!wasSimDirty && (flags & CHUNK_FLAG_DIRTY_SIMULATION) !== 0) {
+    if ((flags & CHUNK_FLAG_DIRTY_SIMULATION) !== 0) {
       this.hooks.onChunkMutated?.(chunkX, chunkY, record.data);
     }
   }
