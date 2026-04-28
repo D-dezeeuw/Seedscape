@@ -11,7 +11,7 @@ import { findNearestWaterSource } from "./water_finder";
 
 const SHALLOW_WATER = 0;
 const DRY_GRASS = 10;
-const WELL_TILE = 201;
+const WELL_TILE = 230;
 
 function chunkAt(cx: number, cy: number): [string, ChunkRecord] {
   const data = allocChunkData();
@@ -39,7 +39,7 @@ describe("findNearestWaterSource", () => {
     expect(hit?.standing).toEqual({ x: 4, y: 5 });
   });
 
-  test("finds wells (tile id 201) too", () => {
+  test("finds wells (tile id 230) too", () => {
     const [k, r] = chunkAt(0, 0);
     r.data.tileId[tileIndex(3, 3)] = WELL_TILE;
     const hit = findNearestWaterSource(makeChunks([[k, r]]), 0, 0);

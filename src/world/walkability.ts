@@ -14,18 +14,19 @@ const DEEP_WATER = 1;
 const SWAMP_WATER = 30;
 
 export function isEntityWalkable(tileId: number): boolean {
-  // Buildings (200..299) block.
+  // Buildings (200..299) and animal pens (400..499) block.
   if (tileId >= 200 && tileId <= 299) return false;
+  if (tileId >= 400 && tileId <= 499) return false;
   // Water tiles block.
   if (tileId === SHALLOW_WATER || tileId === DEEP_WATER || tileId === SWAMP_WATER) return false;
   return true;
 }
 
-// True for tiles a HAUL_WATER job can fetch from. Wells (tile id reserved by
-// building registry) and shallow water both count; deep water and swamp don't
+// True for tiles a HAUL_WATER job can fetch from. Wells (Phase 9 building
+// at tile id 230) and shallow water both count; deep water and swamp don't
 // — settlers can't reach the middle of a river. Kept here so the pathfinder
 // worker and main-thread emitters share the same test.
-const WELL_TILE = 201;
+const WELL_TILE = 230;
 export function isWaterSource(tileId: number): boolean {
   return tileId === SHALLOW_WATER || tileId === WELL_TILE;
 }

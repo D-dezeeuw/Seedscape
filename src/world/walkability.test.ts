@@ -15,6 +15,12 @@ describe("isEntityWalkable", () => {
     expect(isEntityWalkable(299)).toBe(false);
   });
 
+  test("animal pens block", () => {
+    expect(isEntityWalkable(400)).toBe(false);
+    expect(isEntityWalkable(410)).toBe(false);
+    expect(isEntityWalkable(499)).toBe(false);
+  });
+
   test("ground / soil / crops are walkable", () => {
     expect(isEntityWalkable(10)).toBe(true); // dry grass
     expect(isEntityWalkable(11)).toBe(true); // rich soil
@@ -28,7 +34,7 @@ describe("isEntityWalkable", () => {
 describe("isWaterSource", () => {
   test("shallow water and wells are sources", () => {
     expect(isWaterSource(0)).toBe(true);
-    expect(isWaterSource(201)).toBe(true);
+    expect(isWaterSource(230)).toBe(true);
   });
   test("deep water and swamp are not sources (unreachable)", () => {
     expect(isWaterSource(1)).toBe(false);

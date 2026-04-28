@@ -9,6 +9,7 @@ import { ToolState } from "./input/tool";
 import { type AtlasManifest, loadAtlas } from "./rendering/atlas";
 import { InstancedEntityRenderer } from "./rendering/instanced_entity_renderer";
 import { InstancedTileRenderer } from "./rendering/instanced_tile_renderer";
+import { Chicken, Cow } from "./state/entities/animal";
 import type { EntityServices, TileWorldAccess } from "./state/entities/entity";
 import { EntityManager } from "./state/entities/entity_manager";
 import { LivingEntity } from "./state/entities/living_entity";
@@ -31,6 +32,7 @@ import { createContainerWindow } from "./ui/container_window";
 import { createDebugPanel } from "./ui/debug_panel";
 import { EntityLabels } from "./ui/entity_labels";
 import { FacedTileReticle } from "./ui/faced_tile_reticle";
+import { createGuideWindow } from "./ui/guide_window";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
 import { createOrdersPanel } from "./ui/orders_panel";
@@ -61,6 +63,8 @@ import { BuildingBufferStore } from "./world/farming/building_buffer";
 import { autoQueueFromBuffers, buildingOutputCap } from "./world/farming/building_buffer_tick";
 import { buildingForTile } from "./world/farming/building_registry";
 import { CrateStore } from "./world/farming/crate";
+import { irrigationTick } from "./world/farming/irrigation_tick";
+import { findEmptyPen } from "./world/farming/pen_spawn";
 import { restockAutoContainers } from "./world/farming/restock";
 import { applySimDelta } from "./world/farming/sim_pipeline";
 import { harvestTile, plantSeed, tillTile, waterTile } from "./world/farming/tile_actions";
@@ -72,7 +76,13 @@ const CACHE_CAPACITY = 256;
 const STREAM_MARGIN_CHUNKS = 2;
 const SIM_TICK_MS = 1000;
 const AUTOSAVE_MS = 30_000;
-const STARTING_WHEAT_SEEDS = 100;
+// Tight onboarding budget: 30 coins is exactly one Storage Crate, so the
+// first thing the player buys is the crate that lets the two starter
+// settlers begin depositing harvests. 4 carrot seeds plant the 2×2
+// starter patch — once harvested they feed the village (Phase 10's
+// hunger loop) and can be re-sold via the trader for early income.
+const STARTING_COINS = 30;
+const STARTING_CARROT_SEEDS = 4;
 // Player avatar walk speed in tiles/sec when possessed. Tunable; matches
 // Phase 5's villager wander speed so the world's motion feels coherent
 // whether or not you're driving.
@@ -163,8 +173,9 @@ async function bootstrap(): Promise<void> {
   camera.y = 0;
 
   const player = new Player();
+  player.addCoins(STARTING_COINS);
   const inventory = new Inventory();
-  inventory.add(ITEM_IDS.WHEAT_SEED, STARTING_WHEAT_SEEDS);
+  inventory.add(ITEM_IDS.CARROT_SEED, STARTING_CARROT_SEEDS);
   const orders = new OrderBook(0);
   const entityManager = new EntityManager();
   const crates = new CrateStore();
@@ -179,6 +190,7 @@ async function bootstrap(): Promise<void> {
     chunks: chunkManager,
     crates,
     buildingBuffers,
+    entityManager,
   });
 
   // Game time: advances 1 second per sim tick. Stored separately from
@@ -240,6 +252,14 @@ async function bootstrap(): Promise<void> {
   const detachControls = attachCameraControls(camera, canvas);
   const tool = new ToolState();
   const toaster = createToaster(document.body);
+
+  // Phase 10.1: surface deaths via the toast. The death sweep runs
+  // inside entity_manager.tick() so the entity is removed by the time
+  // any other system reads from EntityManager.iterate().
+  const detachDeathToast = entityManager.onDeath((e) => {
+    const label = e instanceof Villager ? e.name || "A settler" : `A ${e.type}`;
+    toaster.show(`${label} starved`);
+  });
 
   const inputRouter = new InputRouter();
   const detachInputRouter = attachInputRouter(inputRouter, window);
@@ -378,14 +398,52 @@ async function bootstrap(): Promise<void> {
     inventory,
     player,
   });
-  const shopWindow = createShopMenu({ parent: document.body, inventory, player, tool });
+  const shopWindow = createShopMenu({
+    parent: document.body,
+    inventory,
+    player,
+    tool,
+    onBuyAnimal: (species, price) => {
+      if (player.coins < price) return "no-coins";
+      const pen = findEmptyPen(chunkManager, entityManager, species, camera.x, camera.y);
+      if (!pen) return "no-pen";
+      if (!player.spendCoins(price)) return "no-coins";
+      const id = entityManager.allocateId();
+      const pos = {
+        chunkX: Math.floor(pen.worldTileX / 32),
+        chunkY: Math.floor(pen.worldTileY / 32),
+        localX: (((pen.worldTileX % 32) + 32) % 32) + 0.5,
+        localY: (((pen.worldTileY % 32) + 32) % 32) + 0.5,
+      };
+      const animal =
+        species === "chicken"
+          ? new Chicken(id, pos, { x: pen.worldTileX, y: pen.worldTileY })
+          : new Cow(id, pos, { x: pen.worldTileX, y: pen.worldTileY });
+      entityManager.add(animal);
+      toaster.show(
+        `${species === "chicken" ? "Chicken" : "Cow"} arrived at (${pen.worldTileX}, ${pen.worldTileY})`,
+      );
+      return "ok";
+    },
+    toast: (msg) => toaster.show(msg),
+  });
   const settlersWindow = createSettlersWindow({
     parent: document.body,
     entityManager,
     onSelect: (villager) => personWindow.showFor(villager),
     onGoTo: (x, y) => camera.panTo(x, y),
   });
-  const settingsWindow = createSettingsPanel({ parent: document.body });
+  const settingsWindow = createSettingsPanel({
+    parent: document.body,
+    // Reuse the autosave's serialised promise chain so a manual save
+    // can't interleave with an in-flight autosave.
+    onSaveNow: () => {
+      savePromise = savePromise.then(() => saveManager.save());
+      return savePromise;
+    },
+    toast: (msg) => toaster.show(msg),
+  });
+  const guideWindow = createGuideWindow({ parent: document.body });
   const debugWindow = import.meta.env.DEV
     ? createDebugPanel({
         parent: document.body,
@@ -461,6 +519,22 @@ async function bootstrap(): Promise<void> {
     exitFab.style.display = snap.mode === "possess" ? "" : "none";
   });
 
+  // ? FAB (bottom-left) opens the Game Guide. Hidden during possession
+  // so it doesn't fight the exit-possession FAB for the same corner —
+  // a player driving an avatar isn't reading docs anyway.
+  const helpFab = document.createElement("button");
+  helpFab.className = "ss-btn ss-help-fab";
+  helpFab.setAttribute("aria-label", "Game Guide");
+  helpFab.title = "Game Guide";
+  helpFab.textContent = "?";
+  helpFab.addEventListener("click", () => guideWindow.toggle());
+  document.body.appendChild(helpFab);
+  const detachHelpFabSub = possession.subscribe((snap) => {
+    const possessing = snap.mode === "possess";
+    helpFab.style.display = possessing ? "none" : "";
+    if (possessing && guideWindow.isOpen()) guideWindow.hide();
+  });
+
   // Dev-only debug window has its own floating trigger button in the
   // bottom-right corner, separate from the gameplay toolbar.
   let detachDebugButton: () => void = () => {};
@@ -516,6 +590,11 @@ async function bootstrap(): Promise<void> {
     // when no buffers have content. Runs before the chunk dispatch so a
     // newly-fed building can start its cycle this tick.
     autoQueueFromBuffers(chunkManager, buildingBuffers);
+    // Phase 9: irrigation passes (Wells / Sprinklers raise water on
+    // farmable tiles in radius). Cheap — early-exits on tick gates
+    // when no irrigation is due, and the inner scan only fires for
+    // chunks containing the matching tile ids.
+    irrigationTick(chunkManager, tick);
 
     for (const key of getSimulatableChunkKeys(chunkManager)) {
       if (inFlightKeys.has(key)) continue;
@@ -594,6 +673,14 @@ async function bootstrap(): Promise<void> {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") triggerSave();
   });
+  // pagehide is the modern, more-reliable hook for "tab is going
+  // away" — fires for refresh, navigate-away, and tab-close in cases
+  // visibilitychange misses (BFCache / Safari edge cases). Best-
+  // effort only: IndexedDB writes are async and the browser may not
+  // wait, but kicking the transaction queues at least the most
+  // recent state. Without this, pens placed within 30s of refresh
+  // would be lost because the autosave hadn't fired yet.
+  window.addEventListener("pagehide", () => triggerSave());
 
   // TileWorldAccess for the settler state machine. Wraps chunkManager so
   // tile reads/writes go through the dirty-marking path (otherwise
@@ -624,11 +711,19 @@ async function bootstrap(): Promise<void> {
       if (r.applied) {
         chunkManager.markDirty(cx, cy, CHUNK_FLAG_DIRTY_RENDER | CHUNK_FLAG_DIRTY_SIMULATION);
       }
-      const out: { applied: boolean; produceItem?: number; yield?: number } = {
+      const out: {
+        applied: boolean;
+        produceItem?: number;
+        yield?: number;
+        seedItem?: number;
+        seedYield?: number;
+      } = {
         applied: r.applied,
       };
       if (r.produceItem !== undefined) out.produceItem = r.produceItem;
       if (r.yield !== undefined) out.yield = r.yield;
+      if (r.seedItem !== undefined) out.seedItem = r.seedItem;
+      if (r.seedYield !== undefined) out.seedYield = r.seedYield;
       return out;
     },
     waterAt(wx, wy) {
@@ -681,6 +776,7 @@ async function bootstrap(): Promise<void> {
     crates,
     buildingBuffers,
     tileWorld,
+    entityManager,
   };
 
   // Phase 9: action key (E) routes through the possession action
@@ -817,8 +913,7 @@ async function bootstrap(): Promise<void> {
     overlay.setSettlerCount(settlerCount);
 
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const t = ((timestampMs - start) / 1000) % 3600;
-    renderer.draw(camera.viewProjection, t);
+    renderer.draw(camera.viewProjection);
     entityRenderer.draw(
       entityManager.iterate(),
       camera.viewProjection,
@@ -872,8 +967,11 @@ async function bootstrap(): Promise<void> {
       detachInputRouter();
       detachActionKey();
       detachPossession();
+      detachDeathToast();
       detachExitFabSub();
       exitFab.remove();
+      detachHelpFabSub();
+      helpFab.remove();
       detachInteraction();
       detachHud();
       detachInfo();
@@ -889,6 +987,7 @@ async function bootstrap(): Promise<void> {
       shopWindow.destroy();
       settlersWindow.destroy();
       settingsWindow.destroy();
+      guideWindow.destroy();
       debugWindow?.destroy();
       detachLevelUp();
       toaster.destroy();

@@ -12,6 +12,7 @@ import { getItemWeight, type ItemId } from "../items";
 import {
   Entity,
   type EntityPosition,
+  type EntityTickContext,
   FACING_EAST,
   FACING_NORTH,
   FACING_SOUTH,
@@ -25,6 +26,14 @@ import {
 // at pickup time. Per-entity carry caps live on LivingEntity so each
 // subclass tunes its own weight budget — see Villager.
 export const MAX_STACK_SIZE = 99;
+
+// Max value for any need byte (hunger, sleep, etc.). Universal because
+// every LivingEntity uses the same 0..255 scale per docs/18.
+export const HUNGER_MAX = 255;
+// Below this fraction of HUNGER_MAX a settler injects an "eat" task at
+// the next idle. 0.4 = ~40% leaves room to finish the current job
+// without thrashing on the threshold edge.
+export const HUNGER_HUNGRY_THRESHOLD = HUNGER_MAX * 0.4;
 
 // Sensible default for a carrying entity: no carrying. Subclasses opt
 // in by setting maxCarryWeight in their constructor. This keeps any
@@ -145,6 +154,160 @@ export abstract class LivingEntity extends Entity {
   // simply leave maxCarryWeight at 0 so pickup() refuses everything.
   readonly carriedItems = new Map<ItemId, number>();
 
+  // Decay rate for needs.hunger in hunger-units per sim tick.
+  // Float-valued so subclasses can pick a tempo without quantising to
+  // integer ticks. Default 0.5 = ~10 minutes from full to dead at 1 TPS,
+  // tuned for a settler that can survive a moderate workday but can't
+  // ignore food entirely. ProducerAnimal overrides to 1.0 so animals
+  // eat more frequently. Hunger value itself lives on the shared
+  // `needs` struct (see docs/18) — settlers read/write needs.hunger.
+  hungerDecayPerTick: number = 0.5;
+  // Last sim tick the hunger / produce-cycle pipeline processed. Lifted
+  // here from ProducerAnimal so tickHunger and any future per-tick
+  // need pipeline reuse it. Null = "first tick — establish baseline".
+  protected lastHungerTick: number | null = null;
+
+  // Per-entity "can I stand on this tile?" check. The default delegates
+  // to the global `isEntityWalkable` rule via ctx.isWalkable — same as
+  // pre-Phase-9.2 behaviour, so settlers keep the existing constraints.
+  // Subclasses (Animals constrained to a species-specific pen, future
+  // amphibians that walk in shallow water) override to widen or
+  // narrow their reachable set without altering the global rule.
+  //
+  // Used by entity_manager's separation pass + by entities' own
+  // moveToward closures so wander, possession, and soft-collide all
+  // share one source of truth per entity.
+  canEnter(worldTileX: number, worldTileY: number, ctx: EntityTickContext): boolean {
+    return ctx.isWalkable(worldTileX, worldTileY);
+  }
+
+  // Idle-wander state, shared by every LivingEntity. The behaviour is
+  // identical for villagers and animals — pick a random walkable
+  // (= canEnter) point within wanderRadius of wanderAnchor, walk
+  // there, pause, repeat. What differs is the anchor (home tile vs
+  // pen tile) and the per-step walkability rule (chickens can't
+  // leave their pen). Subclasses override `wanderAnchor()` and the
+  // tuning fields below; `canEnter()` handles the constraint.
+  protected wanderRadius = 6;
+  protected wanderSpeed = 4; // tiles/sec
+  protected wanderIdleMin = 2;
+  protected wanderIdleMax = 5;
+  protected wanderArriveEpsilon = 0.1;
+  private wanderTargetX: number | null = null;
+  private wanderTargetY: number | null = null;
+  private wanderPauseUntil = 0;
+  // Per-entity LCG state for wander RNG. Seeded from id at
+  // construction so two entities with the same id wander identically
+  // (preserves the deterministic-replay property the old Villager
+  // wander relied on, without dragging worldSeed + ctx.time into
+  // every pick).
+  private wanderSeed: number;
+
+  // World-space (sub-tile) anchor the wander loops around. Default is
+  // the entity's spawn position; Villager points it at home tile
+  // centre, ProducerAnimal at pen tile centre.
+  protected wanderAnchor(): { x: number; y: number } {
+    return { x: this.worldX(), y: this.worldY() };
+  }
+
+  // Drive one frame of idle wander. Subclasses call this when they have
+  // nothing else to do (no job claim, no driven movement). Returns
+  // nothing — the entity may move or stay still depending on pause /
+  // canEnter results. Walkability for the step uses canEnter so each
+  // subclass's terrain rule is honoured.
+  protected tickWander(ctx: EntityTickContext): void {
+    if (ctx.time < this.wanderPauseUntil) return;
+
+    if (this.wanderTargetX === null || this.wanderTargetY === null) {
+      this.pickWanderTarget(ctx);
+    }
+    const tx = this.wanderTargetX;
+    const ty = this.wanderTargetY;
+    if (tx === null || ty === null) {
+      // No reachable target — pause briefly and retry.
+      this.wanderPauseUntil = ctx.time + this.wanderIdleMin;
+      return;
+    }
+
+    const remaining = this.moveToward(tx, ty, this.wanderSpeed, ctx.dt, (wx, wy) =>
+      this.canEnter(wx, wy, ctx),
+    );
+    if (remaining > this.wanderArriveEpsilon) return;
+
+    // Arrived. Drop the target so the next pick is fresh, then idle.
+    this.wanderTargetX = null;
+    this.wanderTargetY = null;
+    const span = Math.max(0, this.wanderIdleMax - this.wanderIdleMin);
+    this.wanderPauseUntil = ctx.time + this.wanderIdleMin + this.nextWanderRandom() * span;
+  }
+
+  private pickWanderTarget(ctx: EntityTickContext): void {
+    const anchor = this.wanderAnchor();
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const angle = this.nextWanderRandom() * Math.PI * 2;
+      const r = 1 + this.nextWanderRandom() * Math.max(0, this.wanderRadius - 1);
+      const tx = anchor.x + Math.cos(angle) * r;
+      const ty = anchor.y + Math.sin(angle) * r;
+      if (this.canEnter(Math.floor(tx), Math.floor(ty), ctx)) {
+        this.wanderTargetX = tx;
+        this.wanderTargetY = ty;
+        return;
+      }
+    }
+    // No valid tile in range — fall back to anchor centre. Picks resume
+    // next pause cycle once surroundings change (e.g. pen built around
+    // a stuck animal).
+    this.wanderTargetX = anchor.x;
+    this.wanderTargetY = anchor.y;
+  }
+
+  // Tiny LCG, [0, 1). Determinism is the only requirement here —
+  // wander is cosmetic, not gameplay. Keyed on id (set in constructor)
+  // so two entities with the same id wander identically; different
+  // ids diverge.
+  private nextWanderRandom(): number {
+    this.wanderSeed = (this.wanderSeed * 1103515245 + 12345) | 0;
+    return ((this.wanderSeed >>> 8) & 0xffffff) / 0x1000000;
+  }
+
+  // Public read-only view of the current wander target. Subclasses
+  // shouldn't mutate it — the tick loop owns transitions. Returns the
+  // anchor when no target is currently set (just-arrived / on cooldown).
+  getWanderTarget(): { x: number; y: number } {
+    if (this.wanderTargetX === null || this.wanderTargetY === null) {
+      return this.wanderAnchor();
+    }
+    return { x: this.wanderTargetX, y: this.wanderTargetY };
+  }
+
+  // Apply hunger decay aligned to discrete sim ticks (frame ticks
+  // shouldn't accelerate decay). Returns the number of sim ticks
+  // elapsed since the last call so callers can drive other per-tick
+  // logic (animal produce cycle, future need decay) on the same
+  // cadence. First call after construction returns 0 — it just
+  // captures the baseline tick.
+  protected tickHunger(ctx: EntityTickContext): number {
+    const tick = ctx.simTick;
+    if (tick === undefined) return 0;
+    if (this.lastHungerTick === null) {
+      this.lastHungerTick = tick;
+      return 0;
+    }
+    const elapsed = tick - this.lastHungerTick;
+    if (elapsed <= 0) return 0;
+    this.lastHungerTick = tick;
+    this.needs.hunger = Math.max(0, this.needs.hunger - this.hungerDecayPerTick * elapsed);
+    return elapsed;
+  }
+
+  // True if any tracked vital has hit 0. Hunger is the only vital
+  // today; Phase 10.2 adds sleep / toilet etc., each as its own clause
+  // here. entity_manager polls this after every tick and removes
+  // dead entities (and emits a death notification).
+  isDead(): boolean {
+    return this.needs.hunger <= 0;
+  }
+
   constructor(id: number, position: EntityPosition, facing: Facing = FACING_SOUTH) {
     super(id, position, facing);
     this.needs = makeFullNeeds();
@@ -165,6 +328,17 @@ export abstract class LivingEntity extends Entity {
     this.availableActions = [];
     this.maxCarryWeight = DEFAULT_MAX_CARRY_WEIGHT;
     this.maxStackSize = MAX_STACK_SIZE;
+    // LCG seed for the shared wander RNG. id || 1 so a freshly-spawned
+    // entity with id 0 (defensive — shouldn't happen) still has a
+    // non-zero seed and produces motion.
+    this.wanderSeed = id || 1;
+    // Seed the initial wander target at the spawn position so the first
+    // tick arrives instantly — a freshly-spawned entity stands still
+    // for one wanderIdle cycle before walking, matching the pre-9.2
+    // Villager behaviour. Without this, every entity would teleport-
+    // walk a fraction of a tile on its very first frame.
+    this.wanderTargetX = this.worldX();
+    this.wanderTargetY = this.worldY();
   }
 
   // Sum of carried counts across all item types. Used by tests and

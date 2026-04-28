@@ -27,6 +27,17 @@ export interface UnlockDef {
 // project_phase_deferred.md.
 export const UNLOCK_DEFS: ReadonlyArray<UnlockDef> = [
   { id: "seed.wheat", kind: "seed", targetId: 600, requiredLevel: 1, displayName: "Wheat seeds" },
+  // Carrots unlock at level 1 alongside wheat — the fresh-world starter
+  // inventory ships 4 carrot seeds (see STARTING_CARROT_SEEDS in main.ts)
+  // so they have to be plantable from tick 0. Wheat stays available so
+  // the bread chain (Mill / Bakery at higher levels) still has a path.
+  {
+    id: "seed.carrot",
+    kind: "seed",
+    targetId: 608,
+    requiredLevel: 1,
+    displayName: "Carrot seeds",
+  },
   // Crate + dispenser unlock at level 2 — early enough that settler
   // autonomy (Phase 7) is reachable on the first farm before the player
   // touches the production chain. Cheaper than the mill so the cost
@@ -46,7 +57,6 @@ export const UNLOCK_DEFS: ReadonlyArray<UnlockDef> = [
     displayName: "Seed Dispenser",
   },
   { id: "building.mill", kind: "building", targetId: 200, requiredLevel: 3, displayName: "Mill" },
-  { id: "seed.carrot", kind: "seed", targetId: 608, requiredLevel: 5, displayName: "Carrot seeds" },
   {
     id: "building.bakery",
     kind: "building",
@@ -55,6 +65,31 @@ export const UNLOCK_DEFS: ReadonlyArray<UnlockDef> = [
     displayName: "Bakery",
   },
   { id: "seed.corn", kind: "seed", targetId: 616, requiredLevel: 7, displayName: "Corn seeds" },
+  // Phase 9 unlocks — irrigation + animals slot in around the mill/carrot
+  // tier so a player can bring them online before tackling the production
+  // chain at higher levels.
+  { id: "building.well", kind: "building", targetId: 230, requiredLevel: 4, displayName: "Well" },
+  {
+    id: "building.chicken_pen",
+    kind: "building",
+    targetId: 400,
+    requiredLevel: 4,
+    displayName: "Chicken Pen",
+  },
+  {
+    id: "building.sprinkler",
+    kind: "building",
+    targetId: 231,
+    requiredLevel: 6,
+    displayName: "Sprinkler",
+  },
+  {
+    id: "building.cow_pen",
+    kind: "building",
+    targetId: 410,
+    requiredLevel: 6,
+    displayName: "Cow Pen",
+  },
 ];
 
 // Debug override: when true, every unlock check returns true regardless

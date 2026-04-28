@@ -25,9 +25,19 @@ import {
   CROP_STATE_WILTED,
   cropForTile,
 } from "../world/farming/crop_registry";
+import {
+  FEED_ANIMAL_THRESHOLD_FRACTION,
+  isPenTile,
+  penForTile,
+} from "../world/farming/pen_registry";
+import { HUNGER_MAX } from "./entities/living_entity";
 import { getWaterLevel } from "../world/farming/tile_actions";
+import { ProducerAnimal } from "./entities/animal";
+import type { EntityManager } from "./entities/entity_manager";
 import { ITEM_IDS, type ItemId } from "./items";
 import {
+  JOB_KIND_COLLECT_PRODUCE,
+  JOB_KIND_FEED_ANIMAL,
   JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_OUTPUT,
@@ -85,6 +95,11 @@ export class JobEmitter {
   // adds FEED_BUILDING / HAUL_OUTPUT jobs based on input/output state.
   // Tests that don't exercise building hauling can omit it.
   private readonly buildingBuffers: BuildingBufferStore | undefined;
+  // Phase 9.2: optional entity manager. When provided, the pen scan
+  // looks up the resident ProducerAnimal at each pen tile to gate
+  // FEED_ANIMAL emission on hunger. Tests that don't exercise animal
+  // hauling can omit it.
+  private readonly entityManager: EntityManager | undefined;
   private readonly period: number;
   private lastScanTick = -Infinity;
 
@@ -93,12 +108,14 @@ export class JobEmitter {
     chunks: ChunkSource;
     crates?: CrateStore;
     buildingBuffers?: BuildingBufferStore;
+    entityManager?: EntityManager;
     periodTicks?: number;
   }) {
     this.board = opts.board;
     this.chunks = opts.chunks;
     this.crates = opts.crates;
     this.buildingBuffers = opts.buildingBuffers;
+    this.entityManager = opts.entityManager;
     this.period = opts.periodTicks ?? DEFAULT_EMITTER_PERIOD_TICKS;
   }
 
@@ -120,6 +137,12 @@ export class JobEmitter {
     // the crate store. The result is allowed to go stale within a scan —
     // by the next scan the answer will be re-computed.
     const seedsAvailable = this.crates ? hasAnySeed(this.crates) : false;
+    const feedAvailable = this.crates ? hasAnyFeed(this.crates) : false;
+    // Pen tile → resident animal (if any). One pass over entities per
+    // scan, indexed by the animal's pen anchor.
+    const animalAtPen: Map<string, ProducerAnimal> = this.entityManager
+      ? buildAnimalAnchorMap(this.entityManager)
+      : new Map();
 
     for (const [key, record] of this.chunks.allChunkRecords()) {
       const [cx, cy] = parseChunkKey(key);
@@ -192,6 +215,48 @@ export class JobEmitter {
             }
           }
 
+          // Phase 9.2: pens. Same pattern as buildings — emit feed jobs
+          // when an animal's hunger drops below threshold (and feed is
+          // available somewhere), and emit collect-produce jobs when
+          // the pen's output buffer holds anything. The buffer is the
+          // shared BuildingBufferStore keyed by tile coords.
+          if (isPenTile(tileId)) {
+            const penDef = penForTile(tileId);
+            if (penDef && this.buildingBuffers) {
+              const animal = animalAtPen.get(`${wx},${wy}`);
+              if (animal && feedAvailable) {
+                const hungerThreshold = HUNGER_MAX * FEED_ANIMAL_THRESHOLD_FRACTION;
+                if (animal.needs.hunger < hungerThreshold) {
+                  if (!this.board.hasJobAt(JOB_KIND_FEED_ANIMAL, wx, wy)) {
+                    this.board.enqueue({
+                      kind: JOB_KIND_FEED_ANIMAL,
+                      source: { x: wx, y: wy }, // resolved to crate.standing
+                      target: { x: wx, y: wy }, // resolved to pen.standing
+                      priority: 2,
+                      payload: ITEM_IDS.ANIMAL_FEED,
+                      holdItems: [ITEM_IDS.ANIMAL_FEED],
+                    });
+                    emitted++;
+                  }
+                }
+              }
+              if (this.buildingBuffers.hasAnyOutput(wx, wy)) {
+                if (!this.board.hasJobAt(JOB_KIND_COLLECT_PRODUCE, wx, wy)) {
+                  this.board.enqueue({
+                    kind: JOB_KIND_COLLECT_PRODUCE,
+                    source: { x: wx, y: wy }, // resolved to pen.standing
+                    target: { x: wx, y: wy }, // resolved to crate.standing
+                    priority: 2,
+                    payload: penDef.produceItem,
+                    holdItems: [penDef.produceItem],
+                  });
+                  emitted++;
+                }
+              }
+            }
+            continue;
+          }
+
           const crop = cropForTile(tileId);
           if (!crop) continue;
           const state = data.state[i] ?? 0;
@@ -230,6 +295,27 @@ export class JobEmitter {
     }
     return emitted;
   }
+}
+
+// One pass over entities, indexing each ProducerAnimal by its pen
+// anchor coords. Lets the per-tile scan look up "is there a resident
+// here?" in O(1).
+function buildAnimalAnchorMap(em: EntityManager): Map<string, ProducerAnimal> {
+  const m = new Map<string, ProducerAnimal>();
+  for (const e of em.iterate()) {
+    if (e instanceof ProducerAnimal) {
+      m.set(`${e.penWorldTileX},${e.penWorldTileY}`, e);
+    }
+  }
+  return m;
+}
+
+// True if any container holds animal feed. Mirrors hasAnySeed.
+function hasAnyFeed(crates: CrateStore): boolean {
+  for (const c of crates.crates()) {
+    if (crates.countAt(c.x, c.y, ITEM_IDS.ANIMAL_FEED) > 0) return true;
+  }
+  return false;
 }
 
 // True if any container has at least one seed-range item. Cheap: walks

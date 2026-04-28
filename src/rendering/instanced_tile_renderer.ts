@@ -40,7 +40,6 @@ export class InstancedTileRenderer {
     atlasSize: WebGLUniformLocation;
     tileSize: WebGLUniformLocation;
     atlas: WebGLUniformLocation;
-    time: WebGLUniformLocation;
   };
   private readonly chunks = new Map<string, ChunkHandle>();
 
@@ -62,7 +61,6 @@ export class InstancedTileRenderer {
       atlasSize: getUniformLocation(gl, this.program, "u_atlasSize"),
       tileSize: getUniformLocation(gl, this.program, "u_tileSize"),
       atlas: getUniformLocation(gl, this.program, "u_atlas"),
-      time: getUniformLocation(gl, this.program, "u_time"),
     };
 
     const quadBuffer = gl.createBuffer();
@@ -168,7 +166,7 @@ export class InstancedTileRenderer {
     gl.deleteProgram(this.program);
   }
 
-  draw(viewProjection: Float32Array, timeSeconds: number): void {
+  draw(viewProjection: Float32Array): void {
     const gl = this.gl;
     gl.useProgram(this.program);
 
@@ -176,7 +174,6 @@ export class InstancedTileRenderer {
     const atlasInTiles = this.atlas.tilesPerRow;
     gl.uniform2f(this.uniformLocs.atlasSize, atlasInTiles, atlasInTiles);
     gl.uniform1f(this.uniformLocs.tileSize, this.tileSize);
-    gl.uniform1f(this.uniformLocs.time, timeSeconds);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture);

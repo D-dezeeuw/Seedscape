@@ -203,6 +203,12 @@ export function executePossessedAction(
         villager.pickup(result.produceItem as ItemId, result.yield);
         recordMemoryHere(villager, "HARVESTED", result.produceItem, action.tile, simTick);
       }
+      // Phase 10.1: harvested crops drop 1-2 seeds of the same kind
+      // into the possessed settler's carry — sticky, so auto-deposit
+      // keeps them around until the next plant.
+      if (result.seedItem != null && result.seedYield) {
+        villager.pickup(result.seedItem as ItemId, result.seedYield);
+      }
       return { kind: "ok" };
     }
     case "plant_seed": {

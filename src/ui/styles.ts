@@ -180,6 +180,98 @@ export function injectUiStyles(): void {
       color: #c8e9f7;
     }
 
+    /* Help FAB. Same bottom-left slot as the exit-possession FAB but
+       only one is visible at a time (god mode shows help; possession
+       shows exit). Round, single-glyph "?" for instant recognition. */
+    .ss-help-fab {
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      z-index: 10;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Game Guide — long-form, multi-chapter doc. Wider than the
+       default toolbar window so the sidebar + content pane both fit
+       without crowding. The body itself scrolls (panel chrome already
+       sets overflow on .ss-panel-body) so chapters of any length are
+       safe. */
+    .ss-window.ss-guide {
+      min-width: 560px;
+      max-width: 720px;
+    }
+    .ss-guide-layout {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      min-height: 320px;
+    }
+    .ss-guide-toc {
+      flex: 0 0 160px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      padding-right: 8px;
+    }
+    .ss-guide-toc-item {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #c8d0d8;
+      font: inherit;
+      text-align: left;
+      padding: 4px 8px;
+      border-radius: 0.5rem;
+      cursor: pointer;
+    }
+    .ss-guide-toc-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e8eaed;
+    }
+    .ss-guide-toc-item.ss-active {
+      background: #3b6f8a;
+      border-color: #5b9fc0;
+      color: #fff;
+    }
+    .ss-guide-content {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .ss-guide-title {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #e8eaed;
+      font-weight: 600;
+    }
+    .ss-guide-content p { margin: 0 0 8px 0; line-height: 1.5; }
+    .ss-guide-content ul { margin: 0 0 8px 0; padding-left: 18px; }
+    .ss-guide-content li { margin-bottom: 3px; line-height: 1.5; }
+    .ss-guide-content b { color: #e8c468; font-weight: 600; }
+    .ss-guide-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .ss-guide-counter {
+      color: #708090;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* Bottom-center double toolbar. */
     .ss-toolbar-stack {
       position: fixed;
@@ -277,15 +369,15 @@ export function injectUiStyles(): void {
     }
 
     .ss-btn {
-      background: rgba(255,255,255,0.05);
+      background: rgba(0, 0, 0, 0.5);
       color: #e8eaed;
       border: 1px solid rgba(255,255,255,0.1);
-      padding: 6px 10px;
+      padding: 8px 14px;
       font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-      border-radius: 4px;
+      border-radius: 0.5rem;
       cursor: pointer;
     }
-    .ss-btn:hover { background: rgba(255,255,255,0.12); }
+    .ss-btn:hover { background: rgba(0, 0, 0, 0.7); }
     .ss-btn.ss-active {
       background: #3b6f8a;
       border-color: #5b9fc0;
@@ -398,6 +490,25 @@ export function injectUiStyles(): void {
     .ss-container-window { min-width: 280px; }
     .ss-dim { color: #6b7d88; }
     .ss-coin { color: #e8c468; }
+    /* Need bars in the Person window. Same shape as the XP bar — a
+       thin horizontal track + filled bar — but tinted by value so a
+       hungry settler reads at a glance. */
+    .ss-need-bar {
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      margin: 2px 0 6px 0;
+      overflow: hidden;
+    }
+    .ss-need-bar-fill {
+      height: 100%;
+      transition: width 0.2s ease-out, background-color 0.2s ease-out;
+    }
+    .ss-need-bar-fill.ss-need-high { background: #6abf6a; }
+    .ss-need-bar-fill.ss-need-mid  { background: #d4a046; }
+    .ss-need-bar-fill.ss-need-low  { background: #c45a5a; }
+    .ss-need-value { font-variant-numeric: tabular-nums; }
+
     .ss-xpbar {
       height: 4px;
       background: rgba(255,255,255,0.08);
@@ -432,8 +543,17 @@ export function injectUiStyles(): void {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 3px 0;
+      padding: 3px 6px;
       gap: 8px;
+      border-radius: 0.4rem;
+      transition: background-color 80ms ease-out;
+    }
+    /* Armed-build highlight: the shop row whose Build button armed
+       the build tool stays lit until the tool resets (closing the
+       Shop, picking another tool, or arming a different building). */
+    .ss-shop-row.ss-active {
+      background: rgba(120, 220, 120, 0.18);
+      box-shadow: inset 0 0 0 1px rgba(120, 220, 120, 0.5);
     }
     .ss-toast {
       position: fixed;

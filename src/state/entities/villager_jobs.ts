@@ -24,6 +24,7 @@ import type { BuildingBufferStore } from "../../world/farming/building_buffer";
 import { buildingInputCap, buildingOutputCap } from "../../world/farming/building_buffer_tick";
 import { buildingForTile } from "../../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
+import { isPenTile } from "../../world/farming/pen_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
 import {
   CROP_STAGE_HARVESTABLE,
@@ -32,8 +33,10 @@ import {
 } from "../../world/farming/crop_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
 import { isEntityWalkable, isWaterSource } from "../../world/walkability";
-import { type ItemId, isItemDefaultSticky } from "../items";
+import { getFoodValue, isFoodItem, isItemDefaultSticky, ITEM_IDS, type ItemId } from "../items";
 import {
+  JOB_KIND_COLLECT_PRODUCE,
+  JOB_KIND_FEED_ANIMAL,
   JOB_KIND_FEED_BUILDING,
   JOB_KIND_HARVEST_CROP,
   JOB_KIND_HAUL_OUTPUT,
@@ -47,8 +50,9 @@ import {
 
 const TILE_FARMLAND_TILLED = 13;
 
+import { ProducerAnimal } from "./animal";
 import type { EntityServices, EntityTickContext } from "./entity";
-import { MEMORY_EVENT_TYPES, recordMemory } from "./living_entity";
+import { HUNGER_HUNGRY_THRESHOLD, HUNGER_MAX, MEMORY_EVENT_TYPES, recordMemory } from "./living_entity";
 import { MAX_WATER_RESERVE, type Villager } from "./villager";
 
 // Tunables. Adjusted to feel responsive without a setter.
@@ -97,6 +101,14 @@ type Task =
       // Walkable tile adjacent to the crate. The settler stops here.
       standingTile: { x: number; y: number };
       // The crate tile itself — used for the deposit() call. Never walked onto.
+      cratePos: { x: number; y: number };
+    }
+  | {
+      // Phase 10.1 — settler walks to a crate holding food, withdraws
+      // one unit, raises hunger by getFoodValue(item), drops the item
+      // (consumed). Single-phase; standingTile == acting tile.
+      kind: "eat";
+      standingTile: { x: number; y: number };
       cratePos: { x: number; y: number };
     };
 
@@ -173,7 +185,7 @@ export class VillagerJobController {
     return this.taskStack.length === 0 && this.state.kind === "idle";
   }
   // Top task kind — UI hint ("currently depositing" vs "currently working").
-  currentTaskKind(): "job" | "deposit" | null {
+  currentTaskKind(): "job" | "deposit" | "eat" | null {
     return this.activeTask()?.kind ?? null;
   }
 
@@ -302,6 +314,30 @@ export class VillagerJobController {
       // settler keep failing to deposit and intervene.
     }
 
+    // Phase 10.1 hunger gate: settlers below the hungry threshold drop
+    // current work and walk to the nearest crate holding any food
+    // item (foodValue > 0). The eat task is a single-phase deposit-
+    // shaped task — walk to standing tile, consume one unit, pop.
+    // Skipped when no crates / no food / no walkable approach.
+    if (
+      v.needs.hunger < HUNGER_HUNGRY_THRESHOLD &&
+      services.crates &&
+      services.tileWorld
+    ) {
+      const target = pickEatTarget(services, fromX, fromY);
+      if (target) {
+        this.pushTask({
+          kind: "eat",
+          standingTile: target.standing,
+          cratePos: target.crate,
+        });
+        this.startActiveTask(v, ctx, services);
+        return true;
+      }
+      // No reachable food — settler keeps doing whatever's available.
+      // If hunger reaches 0 the entity manager removes them.
+    }
+
     // Preference list: filter out kinds we can't fulfil right now. WATER
     // requires reserve > 0; PLANT_SEED requires a seed in inventory. The
     // claim picks the closest matching unclaimed job; subsequent
@@ -319,6 +355,9 @@ export class VillagerJobController {
     ];
     if (services.buildingBuffers) {
       kinds.push(JOB_KIND_FEED_BUILDING, JOB_KIND_HAUL_OUTPUT);
+      // Phase 9.2 pen jobs share the same buffer store + crate-resolver
+      // path; gate them on the same service availability.
+      kinds.push(JOB_KIND_FEED_ANIMAL, JOB_KIND_COLLECT_PRODUCE);
     }
     if (v.waterReserve > 0) kinds.push(JOB_KIND_WATER_CROP);
     if (carriedSeedId(v) !== null) kinds.push(JOB_KIND_PLANT_SEED);
@@ -493,6 +532,61 @@ export class VillagerJobController {
       job.source = buildingStanding;
       job.target = dest.standing;
       job.holdItems = [outputItem];
+    }
+
+    // Phase 9.2 — FEED_ANIMAL claim. Mirrors FEED_BUILDING but the
+    // anchor is a pen tile and the input is always animalFeed.
+    if (job.kind === JOB_KIND_FEED_ANIMAL) {
+      const inputItem = job.payload as ItemId | 0;
+      const penPos = { x: job.source.x, y: job.source.y };
+      if (inputItem === 0 || !services.crates || !services.tileWorld) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      const stock = services.crates.nearestContainerWithStock(
+        services.tileWorld,
+        penPos.x,
+        penPos.y,
+        (id) => id === inputItem,
+      );
+      const penStanding = findStanding(services.tileWorld, penPos.x, penPos.y);
+      if (!stock || !penStanding) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      job.source = stock.standing;
+      job.target = penStanding;
+      job.holdItems = [inputItem];
+    }
+
+    // Phase 9.2 — COLLECT_PRODUCE claim. Mirrors HAUL_OUTPUT but the
+    // anchor is a pen tile and produce comes from the pen's output
+    // buffer (same BuildingBufferStore as Phase 8 buildings).
+    if (job.kind === JOB_KIND_COLLECT_PRODUCE) {
+      const produceItem = job.payload as ItemId | 0;
+      const penPos = { x: job.source.x, y: job.source.y };
+      if (produceItem === 0 || !services.crates || !services.tileWorld) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      const dest = services.crates.nearestContainerForDeposit(
+        services.tileWorld,
+        penPos.x,
+        penPos.y,
+        produceItem,
+      );
+      const penStanding = findStanding(services.tileWorld, penPos.x, penPos.y);
+      if (!dest || !penStanding) {
+        board.release(job.id);
+        this.scheduleRetry(v, ctx);
+        return false;
+      }
+      job.source = penStanding;
+      job.target = dest.standing;
+      job.holdItems = [produceItem];
     }
 
     // Verify the source tile still matches what was emitted. Player
@@ -745,6 +839,10 @@ export class VillagerJobController {
       this.depositAll(task, v, ctx, services);
       return;
     }
+    if (task.kind === "eat") {
+      this.eatAtCrate(task, v, services);
+      return;
+    }
     const job = services.jobs?.get(task.jobId);
     if (!job) return;
     this.actAtSourceForJob(job, v, ctx, services);
@@ -770,6 +868,12 @@ export class VillagerJobController {
         return;
       case JOB_KIND_HAUL_OUTPUT:
         this.actAtTargetForHaulOutput(job, v, ctx, services);
+        return;
+      case JOB_KIND_FEED_ANIMAL:
+        this.actAtTargetForFeedAnimal(job, v, services);
+        return;
+      case JOB_KIND_COLLECT_PRODUCE:
+        this.actAtTargetForCollectProduce(job, v, ctx, services);
         return;
       default:
         return;
@@ -841,6 +945,12 @@ export class VillagerJobController {
             tileX: job.source.x,
             tileY: job.source.y,
           });
+        }
+        // Phase 10.1: pocket the seed drop too. Seeds are sticky
+        // (defaultSticky=true) so the auto-deposit gate leaves them
+        // alone — they survive until the next PLANT_SEED claim.
+        if (result.applied && result.seedItem != null && result.seedYield) {
+          v.pickup(result.seedItem as Parameters<typeof v.pickup>[0], result.seedYield);
         }
         break;
       }
@@ -956,6 +1066,111 @@ export class VillagerJobController {
         }
         break;
       }
+      case JOB_KIND_FEED_ANIMAL: {
+        // Source is standing-next-to-crate. Withdraw 1 animalFeed
+        // (animals consume one per feed event) and pickup. Memory
+        // entry lands on the act-at-target side when the animal is
+        // actually fed.
+        const inputItem = job.payload as ItemId | 0;
+        if (inputItem === 0 || !services.crates) break;
+        for (const n of fourNeighbours(job.source.x, job.source.y)) {
+          const t = tw.readTile(n.x, n.y);
+          if (!t) continue;
+          if (!containerForTile(t.tileId)) continue;
+          const taken = services.crates.withdraw(n.x, n.y, inputItem, 1);
+          if (taken > 0) v.pickup(inputItem, taken);
+          break;
+        }
+        break;
+      }
+      case JOB_KIND_COLLECT_PRODUCE: {
+        // Source is standing-next-to-pen. Pull from the pen's output
+        // buffer (BuildingBufferStore — pens reuse it) into carry.
+        const produceItem = job.payload as ItemId | 0;
+        if (produceItem === 0 || !services.buildingBuffers) break;
+        const penTile = findPenNear(tw, job.source.x, job.source.y);
+        if (!penTile) break;
+        // One produce per haul keeps the buffer rolling — caps in
+        // building_buffer prevent unbounded accumulation if hauls
+        // somehow stop.
+        const taken = services.buildingBuffers.consumeOutput(
+          penTile.x,
+          penTile.y,
+          produceItem,
+          99,
+        );
+        if (taken > 0) {
+          v.pickup(produceItem, taken);
+          recordMemory(v, {
+            type: MEMORY_EVENT_TYPES.HAULED_OUTPUT,
+            tick: memTick,
+            subjectId: produceItem,
+            tileX: penTile.x,
+            tileY: penTile.y,
+          });
+        }
+        break;
+      }
+    }
+  }
+
+  // FEED_ANIMAL target-act: at standing-next-to-pen, find the resident
+  // ProducerAnimal at the pen anchor and call feed() to consume one
+  // animalFeed and raise hunger.
+  private actAtTargetForFeedAnimal(job: Job, v: Villager, services: EntityServices): void {
+    const tw = services.tileWorld;
+    const em = services.entityManager;
+    if (!tw || !em) return;
+    const inputItem = job.payload as ItemId | 0;
+    if (inputItem === 0) return;
+    const penTile = findPenNear(tw, job.target.x, job.target.y);
+    if (!penTile) return;
+    const animal = findAnimalAtPen(em, penTile.x, penTile.y);
+    if (!animal) return;
+    const carried = v.carriedItems.get(inputItem) ?? 0;
+    if (carried <= 0) return;
+    const consumed = animal.feed();
+    if (consumed > 0) {
+      v.drop(inputItem, consumed);
+    }
+  }
+
+  // COLLECT_PRODUCE target-act: deposit carried produce into the
+  // adjacent crate. Symmetric to HAUL_OUTPUT's target side.
+  private actAtTargetForCollectProduce(
+    job: Job,
+    v: Villager,
+    ctx: EntityTickContext,
+    services: EntityServices,
+  ): void {
+    const tw = services.tileWorld;
+    const crates = services.crates;
+    if (!tw || !crates) return;
+    const produceItem = job.payload as ItemId | 0;
+    if (produceItem === 0) return;
+    let cratePos: { x: number; y: number } | null = null;
+    for (const n of fourNeighbours(job.target.x, job.target.y)) {
+      const t = tw.readTile(n.x, n.y);
+      if (!t) continue;
+      const def = containerForTile(t.tileId);
+      if (!def) continue;
+      if (!def.acceptsItem(produceItem)) continue;
+      cratePos = n;
+      break;
+    }
+    if (!cratePos) return;
+    const carried = v.carriedItems.get(produceItem) ?? 0;
+    if (carried <= 0) return;
+    const stored = crates.deposit(cratePos.x, cratePos.y, produceItem, carried);
+    if (stored > 0) {
+      v.drop(produceItem, stored);
+      recordMemory(v, {
+        type: MEMORY_EVENT_TYPES.DEPOSITED,
+        tick: ctx.simTick ?? Math.floor(ctx.time),
+        subjectId: produceItem,
+        tileX: cratePos.x,
+        tileY: cratePos.y,
+      });
     }
   }
 
@@ -1132,6 +1347,27 @@ export class VillagerJobController {
       });
     }
   }
+
+  // Eat task action: pull one unit of any food item from the adjacent
+  // crate and apply its foodValue to the settler's hunger. Pulls one
+  // unit at a time so a single food-rich crate keeps multiple hungry
+  // settlers fed instead of being drained by the first arrival.
+  private eatAtCrate(
+    task: { kind: "eat"; cratePos: { x: number; y: number } },
+    v: Villager,
+    services: EntityServices,
+  ): void {
+    const crates = services.crates;
+    if (!crates) return;
+    const foodId = pickFoodInCrate(crates, task.cratePos.x, task.cratePos.y);
+    if (foodId === null) return; // crate emptied between claim + arrival
+    const taken = crates.withdraw(task.cratePos.x, task.cratePos.y, foodId, 1);
+    if (taken <= 0) return;
+    const restored = getFoodValue(foodId) * taken;
+    v.needs.hunger = Math.min(HUNGER_MAX, v.needs.hunger + restored);
+    // Food is consumed — no v.pickup call. The withdraw already
+    // removed it from the crate.
+  }
 }
 
 // ---- Task source/target resolution ------------------------------------
@@ -1141,6 +1377,7 @@ export class VillagerJobController {
 // tasks, the standingTile (a walkable tile adjacent to the crate).
 function taskSource(task: Task, services: EntityServices): { x: number; y: number } | null {
   if (task.kind === "deposit") return task.standingTile;
+  if (task.kind === "eat") return task.standingTile;
   const job = services.jobs?.get(task.jobId);
   if (!job) return null;
   return job.source;
@@ -1151,6 +1388,7 @@ function taskSource(task: Task, services: EntityServices): { x: number; y: numbe
 // taskSource for single-phase tasks.
 function taskTarget(task: Task, services: EntityServices): { x: number; y: number } | null {
   if (task.kind === "deposit") return task.standingTile;
+  if (task.kind === "eat") return task.standingTile;
   const job = services.jobs?.get(task.jobId);
   if (!job) return null;
   return job.target;
@@ -1241,13 +1479,16 @@ function sourceStillValid(job: Job, services: EntityServices): boolean {
       return t !== null;
     }
     case JOB_KIND_FEED_BUILDING:
-    case JOB_KIND_HAUL_OUTPUT: {
+    case JOB_KIND_HAUL_OUTPUT:
+    case JOB_KIND_FEED_ANIMAL:
+    case JOB_KIND_COLLECT_PRODUCE: {
       // By the time sourceStillValid runs, the controller's claim-time
       // resolution has already rewritten job.source from the emitter's
-      // building tile to a walkable standing tile (next to a crate for
-      // FEED, next to the building for HAUL_OUTPUT). Walkability is
-      // the only invariant left to check; the act step re-derives
-      // crate / building / buffer state from the live world.
+      // building/pen tile to a walkable standing tile (next to a crate
+      // for FEED, next to the building/pen for HAUL_OUTPUT /
+      // COLLECT_PRODUCE). Walkability is the only invariant left to
+      // check; the act step re-derives crate / building / buffer state
+      // from the live world.
       const t = tw.readTile(job.source.x, job.source.y);
       return t !== null;
     }
@@ -1384,6 +1625,49 @@ function pickDepositTarget(
   return null;
 }
 
+// Phase 10.1 — find the nearest crate that holds at least one food
+// item. Returns the crate tile + a walkable adjacent standing tile,
+// matching pickDepositTarget's shape so the eat task can reuse the
+// task-source plumbing. Walks crates.crates() probing each foodish
+// item; cheap because there are few crates and few food kinds.
+function pickEatTarget(
+  services: EntityServices,
+  fromX: number,
+  fromY: number,
+): { crate: { x: number; y: number }; standing: { x: number; y: number } } | null {
+  const crates = services.crates;
+  const tw = services.tileWorld;
+  if (!crates || !tw) return null;
+  const hit = crates.nearestContainerWithStock(tw, fromX, fromY, (id) => isFoodItem(id));
+  return hit ? { crate: hit.container, standing: hit.standing } : null;
+}
+
+// Pick any food item present at (x, y). Returns null when the crate
+// holds no food. Order of items returned is deterministic — we walk
+// the registry's known food ids in declaration order and probe each.
+function pickFoodInCrate(
+  crates: import("../../world/farming/crate").CrateStore,
+  x: number,
+  y: number,
+): ItemId | null {
+  // Probe the items declared as food in items.ts. Cheap — handful of
+  // ids, the crate store already exposes countAt for O(1) per check.
+  for (const id of FOOD_PROBE) {
+    if (crates.countAt(x, y, id) > 0) return id;
+  }
+  return null;
+}
+
+// Items currently flagged foodValue > 0 in items.ts. Hardcoded here
+// so the per-crate scan doesn't have to walk every ItemDef. Update
+// this list when new food items ship.
+const FOOD_PROBE: ItemId[] = [
+  ITEM_IDS.CARROT,
+  ITEM_IDS.CORN,
+  ITEM_IDS.BREAD,
+  ITEM_IDS.EGG,
+];
+
 function hasUnclaimedPlantJob(board: import("../jobs").JobBoard): boolean {
   for (const j of board.all()) {
     if (j.claimedBy === 0 && j.kind === JOB_KIND_PLANT_SEED) return true;
@@ -1425,6 +1709,39 @@ function findBuildingNear(
     const def = buildingForTile(t.tileId);
     if (!def || def.passive) continue;
     return { x: n.x, y: n.y, tileId: t.tileId };
+  }
+  return null;
+}
+
+// 4-neighbour pen lookup. Pens (400-499) live in their own tile range
+// and don't have a `passive` flag — they're never active producers in
+// the building sense. Returns the first adjacent pen tile.
+function findPenNear(
+  tw: import("./entity").TileWorldAccess,
+  x: number,
+  y: number,
+): { x: number; y: number; tileId: number } | null {
+  for (const n of fourNeighbours(x, y)) {
+    const t = tw.readTile(n.x, n.y);
+    if (!t) continue;
+    if (!isPenTile(t.tileId)) continue;
+    return { x: n.x, y: n.y, tileId: t.tileId };
+  }
+  return null;
+}
+
+// O(N) lookup of the resident ProducerAnimal at a pen anchor. With
+// expected scales (≤dozens of animals) the linear walk is cheaper than
+// maintaining an index that needs invalidation on every entity move.
+function findAnimalAtPen(
+  em: import("./entity_manager").EntityManager,
+  penX: number,
+  penY: number,
+): import("./animal").ProducerAnimal | null {
+  for (const e of em.iterate()) {
+    if (e instanceof ProducerAnimal && e.penWorldTileX === penX && e.penWorldTileY === penY) {
+      return e;
+    }
   }
   return null;
 }

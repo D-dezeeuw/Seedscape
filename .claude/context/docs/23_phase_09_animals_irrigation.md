@@ -1,10 +1,17 @@
 # Seedscape — Phase 9: Animals & Irrigation
 
-> Restores work cut from Phase 3 (the "3.5" deferred slice). Smallest scope of the next four phases, biggest visible win — a living farm with less manual watering toil and a complete bread recipe.
+> Restores work cut from Phase 3 (the "3.5" deferred slice). Smallest scope of the next four phases, biggest visible win — a living farm with less manual watering toil and (eventually) a complete bread recipe.
+>
+> **Phase split:**
+>
+> - **9.1 (shipped):** data + entity + irrigation + save migration. Animals tick (hunger + produce cycle), Wells/Sprinklers auto-water, animals/eggs/milk persist across reload.
+> - **9.2 (shipped):** Shop entries for pens / animals / animal feed. Build tool now places pen tiles (one animal per tile; place adjacent for a fenced pen). FEED_ANIMAL + COLLECT_PRODUCE jobs run autonomously — settlers haul feed from a crate to a hungry animal, then haul produce from the pen back to the deposit crate.
+> - **Multi-input building model + Bakery flour+egg recipe:** moved to **Phase 11** alongside the rest of the production catalog. Eggs/milk are tradeable goods (sell at the trader) until then.
 
 ## Goal
 
 Two new gameplay layers stacked on the existing farm:
+
 1. **Animals** — chicken (egg) and cow (milk) live in pens on the player's land, produce items on a deterministic cycle, and need feeding.
 2. **Irrigation** — Well + Sprinkler buildings auto-water tiles within a radius, removing the need to hand-water a 5×5 farm every cycle.
 
@@ -73,7 +80,7 @@ Restoring the egg ingredient closes the loop: Bakery's recipe in [data/buildings
 
 - **New tile ids:** 230 (Well), 231 (Sprinkler), 400 (Chicken pen), 410 (Cow pen) — register in [data/tiles.json](../../../data/tiles.json) and the building/animal registries.
 - **New items:** `animalFeed` (id 720), `egg` (id 710), `milk` (id 711) in [data/items.json](../../../data/items.json), with weight and `defaultSticky: false`.
-- **Bakery recipe restoration:** edit Bakery in [data/buildings.json](../../../data/buildings.json) — add egg as a second input alongside flour. Phase 8's `FEED_BUILDING` job handles single-input buildings; multi-input requires extending `BuildingDef` (decision below).
+- **Bakery recipe restoration** — *moved to Phase 11.* The multi-input `BuildingDef` refactor will land alongside Dairy / Forge / Refinery wiring there since those buildings need it too. Phase 9 ships eggs/milk as tradeable goods (sold to NPC orders) only.
 - **Save migration:** SAVE_VERSION 10 → 11. Add `animals: AnimalSnapshot[]` to the snapshot. Pen output buffers reuse the existing `BuildingBufferStore` so no separate field needed.
 
 ## Open questions (decide before kickoff)
@@ -85,11 +92,21 @@ Restoring the egg ingredient closes the loop: Bakery's recipe in [data/buildings
 
 ## Exit criteria
 
-> Place a chicken pen, buy a chicken from the shop, place feed in a crate near the pen. Without further input, watch a settler haul feed → pen, the chicken eat, lay an egg, and another settler haul the egg to a storage crate. Place a Well; surrounding tilled tiles auto-fill water without manual watering. Bakery accepts flour + egg and produces bread.
+### 9.1 (shipped)
+
+> A debug-spawned chicken in a pen ticks down its hunger, lays an egg into the pen's output buffer when fed (above the threshold), and stops producing when starved. A debug-placed Well at (X,Y) raises water on every farmable tile in the 3×3 around it on a 10-tick period; Sprinkler does the same on 5×5 every 5 ticks. Save and reload preserves animal hunger + produce progress.
+
+### 9.2 (shipped)
+
+> Place a chicken pen, buy a chicken from the shop, place feed in a crate near the pen. Without further input, watch a settler haul feed → pen, the chicken eat, lay an egg, and another settler haul the egg to a storage crate.
+
+### Phase 11 (further deferred)
+
+> Bakery accepts flour + egg and produces bread.
 
 ## Estimated effort
 
-~5–7 days. The animal entity class + pen tile + auto-water tick are each ~1 day; the rest is registry/JSON wiring + UI.
+~5–7 days total. **9.1 (shipped)** was the entity + sim + save layer (~2 days). **9.2** is the autonomy + UI layer (~3 days).
 
 ## References
 

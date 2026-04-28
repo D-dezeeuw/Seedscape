@@ -54,6 +54,11 @@ export interface TileActionResult {
   // For harvest: how many produce items the player gets back.
   yield?: number;
   produceItem?: ItemId;
+  // For harvest: seed drop. Phase 10.1 — every successful harvest
+  // returns a small random number of seeds (1..2) of the same crop
+  // so the player / settlers can replant without buying every cycle.
+  seedItem?: ItemId;
+  seedYield?: number;
 }
 
 export function tillTile(chunk: ChunkData, x: number, y: number): TileActionResult {
@@ -116,5 +121,15 @@ export function harvestTile(chunk: ChunkData, x: number, y: number): TileActionR
   chunk.tileId[i] = TILE_FARMLAND_TILLED;
   chunk.state[i] = 0;
   chunk.metadata[i] = 0;
-  return { applied: true, yield: crop.harvestYield, produceItem: crop.produceItem };
+  // Random 1 or 2 seeds per harvest. Math.random is fine here — the
+  // sim is single-threaded on the main thread for this action and the
+  // seed drop is gameplay-tunable, not deterministic-replay critical.
+  const seedYield = 1 + (Math.random() < 0.5 ? 1 : 0);
+  return {
+    applied: true,
+    yield: crop.harvestYield,
+    produceItem: crop.produceItem,
+    seedItem: crop.seedItem,
+    seedYield,
+  };
 }

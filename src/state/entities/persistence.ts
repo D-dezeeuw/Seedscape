@@ -7,7 +7,7 @@
 // and start serializing them.
 
 import type { ItemId } from "../items";
-import { Mount, Pet } from "./animal";
+import { Chicken, Cow, Mount, Pet, ProducerAnimal } from "./animal";
 import type { Entity, EntityType, Facing } from "./entity";
 import { Villager } from "./villager";
 
@@ -40,6 +40,16 @@ export interface SavedEntity {
     // resolved by the next idle tick rather than a load-time migration.
     waterReserve: number;
     carriedItems: { [itemId: number]: number };
+  };
+  // Phase 9 farm animals (Chicken, Cow). Species drives the concrete
+  // subclass on load; hunger + produceProgress survive across reloads
+  // so a fed cow doesn't lose its half-finished cycle on save.
+  animal?: {
+    species: string;
+    penWorldTileX: number;
+    penWorldTileY: number;
+    hunger: number;
+    produceProgress: number;
   };
   pet?: {
     species: string;
@@ -80,6 +90,14 @@ export function serializeEntity(e: Entity): SavedEntity {
       homeWorldTileY: e.homeWorldTileY,
       waterReserve: e.waterReserve,
       carriedItems: carried,
+    };
+  } else if (e instanceof ProducerAnimal) {
+    base.animal = {
+      species: e.species,
+      penWorldTileX: e.penWorldTileX,
+      penWorldTileY: e.penWorldTileY,
+      hunger: e.needs.hunger,
+      produceProgress: e.produceProgress,
     };
   } else if (e instanceof Pet) {
     base.pet = {
@@ -151,7 +169,21 @@ export function deserializeEntity(saved: SavedEntity): Entity {
       mount.riderId = data.riderId;
       return mount;
     }
-    case "animal":
-      throw new Error(`abstract Animal cannot be deserialized — add a concrete species class`);
+    case "animal": {
+      const data = saved.animal;
+      if (!data) throw new Error(`saved animal ${saved.id} missing animal payload`);
+      const pen = { x: data.penWorldTileX, y: data.penWorldTileY };
+      let entity: ProducerAnimal;
+      if (data.species === "chicken") {
+        entity = new Chicken(saved.id, position, pen, saved.facing);
+      } else if (data.species === "cow") {
+        entity = new Cow(saved.id, position, pen, saved.facing);
+      } else {
+        throw new Error(`saved animal ${saved.id} has unknown species ${data.species}`);
+      }
+      entity.needs.hunger = data.hunger;
+      entity.produceProgress = data.produceProgress;
+      return entity;
+    }
   }
 }

@@ -47,6 +47,17 @@ export function renderAtlasIndex(tileId: number, state: number): number {
 
 // GPU instance buffer per docs/05_data_model.md. Layout per tile:
 // [worldX, worldY, atlasIndex, stateFlags] x 1024 = 16 KB.
+//
+// stateFlags packing (matches the fragment shader):
+//   bit 0 — wilted (state === CROP_STATE_WILTED)
+//   bit 1 — watered (farmable tile with water level > 0)
+//   bit 2 — selected (reserved for future use)
+const TILE_FARMLAND_TILLED_GPU = 13;
+const CROP_STATE_WILTED_GPU = 255;
+// Water lives in metadata bits 3-4 (mirrors WATER_BITS in tile_actions).
+const WATER_META_MASK = 0b11000;
+const WATER_META_SHIFT = 3;
+
 export function buildInstanceBuffer(
   chunk: ChunkData,
   chunkWorldX: number,
@@ -60,12 +71,20 @@ export function buildInstanceBuffer(
       const offset = i * 4;
       const tileId = chunk.tileId[i] ?? 0;
       const state = chunk.state[i] ?? 0;
+      const meta = chunk.metadata[i] ?? 0;
       buffer[offset] = chunkWorldX + x;
       buffer[offset + 1] = chunkWorldY + y;
       buffer[offset + 2] = renderAtlasIndex(tileId, state);
-      // For Phase 3 the GPU stateFlags are unused (no wilt overlay yet); leave
-      // 0 so the fragment shader's wilt branch stays inert.
-      buffer[offset + 3] = 0;
+
+      let flags = 0;
+      if (state === CROP_STATE_WILTED_GPU) flags |= 1;
+      // Wet/dry visual gate: only farmable tiles (bare tilled soil or any
+      // crop) get the watered bit. Stops grass + buildings from being
+      // accidentally darkened by the shader's wet-soil pass.
+      const farmable = tileId === TILE_FARMLAND_TILLED_GPU || isCropTile(tileId);
+      const water = (meta & WATER_META_MASK) >> WATER_META_SHIFT;
+      if (farmable && water > 0) flags |= 2;
+      buffer[offset + 3] = flags;
     }
   }
   return buffer;

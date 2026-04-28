@@ -1,6 +1,12 @@
 # Seedscape — Phase 10: People Simulation (Needs, Sleep, Eat)
 
 > The vision pillar "People Are The Soul" goes from a doc to a runtime feature. Settlers stop being stateless labor units and become entities with biological needs, daily rhythms, and consequences for neglect.
+>
+> **Phase split:**
+>
+> - **10.1 (shipped):** Hunger only. `LivingEntity.needs.hunger` decays per sim tick (~10 min from full to dead). Idle hungry settlers walk to the nearest crate holding any food item (carrot / corn / bread / egg) and eat one unit. Hitting 0 = death — entity removed + toast. Person window has a coloured hunger bar.
+> - **10.2 (next):** Sleep + day cycle + Bed/Kitchen/Table/Toilet buildings. Mood derived from all needs. Mid-job pre-emption (`eat`/`sleep`/`relieve` tasks interrupt running jobs).
+> - **10.3:** Trait modifiers + work-speed multipliers, foundation for Phase 12 personality / arrival.
 
 ## Goal
 
@@ -35,6 +41,7 @@ This is the largest scoped phase since 7. It establishes scaffolding (day cycle,
 ### Buildings
 
 Three new building tiles in range 240–249:
+
 - **Bed** (240): single-occupancy. Owned by a specific villager (assigned on placement or first use). Sleep need restores when occupied at night.
 - **Kitchen** (241): consumes one food item from input buffer per "meal." Produces a "meal" output that fills hunger when eaten at table.
 - **Table** (242): adjacent-tile interaction point. Settlers walk to a table, consume a meal, hunger restores.
@@ -43,6 +50,7 @@ Three new building tiles in range 240–249:
 ### New tasks
 
 Mid-job interrupts via the existing `taskStack` (Phase 7.5):
+
 - `eat` — when hunger < 30%, inject. Pulls a meal from a kitchen output buffer (auto-emitted by job board) or directly consumes a raw edible item carried.
 - `sleep` — when night phase begins AND sleep < 70%, inject. Walks to assigned bed.
 - `relieve` — when toilet < 20%, inject. Walks to nearest toilet.
