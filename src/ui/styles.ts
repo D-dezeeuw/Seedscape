@@ -604,6 +604,9 @@ export function injectUiStyles(): void {
        Highlights:
        - Toolbar windows go fullscreen (one panel at a time, easy to
          dismiss via the existing × in the panel header).
+       - The desktop bottom toolbar + corner FABs are replaced by a
+         single full-width bottom nav (.ss-mobile-bottom-nav) — see
+         the dedicated section further down.
        - Tap targets bumped to ≥44px square per Apple HIG / Material.
        - Safe-area insets respected so iPhone home indicator + Android
          nav bar don't hide controls.
@@ -644,30 +647,20 @@ export function injectUiStyles(): void {
         font-size: 12px;
       }
 
-      /* Toolbar — collapse the windows row, scale the actions row
-         for thumb taps. The hamburger menu (mobile_menu.ts) replaces
-         the toolbar's window-button row entirely. */
-      .ss-toolbar-stack {
-        bottom: calc(8px + env(safe-area-inset-bottom));
-      }
-      .ss-toolbar-windows { display: none; }
-      .ss-toolbar-actions {
-        gap: 6px;
-        padding: 8px;
-        max-width: calc(100vw - 16px);
-        overflow-x: auto;
-        scrollbar-width: none; /* Firefox */
-      }
-      .ss-toolbar-actions::-webkit-scrollbar { display: none; }
-      .ss-toolbar-actions .ss-btn {
-        flex: 0 0 auto;
-        min-width: 56px;
-      }
+      /* Desktop toolbar (action row + window-opener row) is fully
+         replaced by .ss-mobile-bottom-nav on mobile. Hide the whole
+         stack so the two layouts don't overlap. */
+      .ss-toolbar-stack { display: none; }
 
-      /* Plant seed selector — tighten + raise above the bigger
-         toolbar so it doesn't overlap. */
+      /* Floating ?, ☰ FABs are folded into the bottom nav's Guide /
+         Menu tabs. Hide them on mobile so they don't double up. */
+      .ss-help-fab,
+      .ss-menu-fab { display: none; }
+
+      /* Plant seed selector floats above the bottom nav. The bar is
+         ~52–86px tall depending on safe-area; 92px clears it. */
       .ss-plant-selector {
-        bottom: calc(72px + env(safe-area-inset-bottom));
+        bottom: calc(92px + env(safe-area-inset-bottom));
       }
 
       /* Top-left stack stays at the corner but respects the notch. */
@@ -685,23 +678,18 @@ export function injectUiStyles(): void {
         padding: 4px 8px;
       }
 
-      /* FAB stack: ?, ⚙, exit-possess. Larger + safe-area aware. */
-      .ss-help-fab,
-      .ss-exit-possess-fab,
-      .ss-debug-fab {
-        bottom: calc(8px + env(safe-area-inset-bottom));
-      }
-      .ss-help-fab,
-      .ss-debug-fab {
-        right: calc(8px + env(safe-area-inset-right));
-      }
+      /* Exit-possession FAB — bottom-left, only visible while
+         possessing (when the bottom nav is hidden). */
       .ss-exit-possess-fab {
+        bottom: calc(8px + env(safe-area-inset-bottom));
         left: calc(8px + env(safe-area-inset-left));
       }
-      .ss-help-fab {
-        width: 44px;
-        height: 44px;
-        font-size: 20px;
+
+      /* Dev-only debug FAB sits above the bottom nav's right edge so
+         it doesn't get covered by the bar in god mode. */
+      .ss-debug-fab {
+        bottom: calc(96px + env(safe-area-inset-bottom));
+        right: calc(8px + env(safe-area-inset-right));
       }
 
       /* Possession action bar: bigger button so it doubles as the
@@ -710,40 +698,37 @@ export function injectUiStyles(): void {
         padding: 14px 24px;
         font-size: 14px;
       }
-
-      /* Dev-only debug FAB stays tucked above the help FAB so it
-         doesn't claim its slot. */
-      .ss-debug-fab {
-        bottom: calc(60px + env(safe-area-inset-bottom));
-      }
     }
 
-    /* ---------------- Mobile menu (hamburger sheet) ----------------
-       Replaces the desktop toolbar window-buttons row on mobile.
-       Mounted by mobile_menu.ts; styling lives here so the rest of
-       the panel chrome (.ss-panel / .ss-panel-header etc.) applies
-       cleanly. */
-    .ss-menu-fab {
-      position: fixed;
-      bottom: 8px;
-      right: 56px; /* sits left of the help FAB */
-      z-index: 10;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      font-size: 20px;
-      line-height: 1;
-      display: none; /* hidden on desktop; shown via mobile media query below */
-      align-items: center;
-      justify-content: center;
-    }
+    /* ---------------- Mobile bottom nav (pointer: coarse) ----------
+       Full-width bar pinned to the bottom on touch devices. Owns
+       three tabs: Tools (sheet), Menu (sheet), Guide (window). See
+       mobile_bottom_nav.ts for the wiring. Hidden on desktop and
+       toggled off during possession (the contextual action bar +
+       on-screen D-pad take over the bottom of the screen). */
+    .ss-mobile-bottom-nav { display: none; }
     @media (pointer: coarse) {
-      .ss-menu-fab {
-        display: inline-flex;
-        bottom: calc(8px + env(safe-area-inset-bottom));
-        right: calc(60px + env(safe-area-inset-right));
+      .ss-mobile-bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        gap: 4px;
+        padding: 6px env(safe-area-inset-right)
+                calc(6px + env(safe-area-inset-bottom))
+                env(safe-area-inset-left);
+        background: rgba(20, 26, 32, 0.92);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(4px);
+        z-index: 10;
+      }
+      .ss-mobile-nav-tab {
+        flex: 1 1 0;
+        min-width: 0;
       }
     }
+
     .ss-menu-list { display: flex; flex-direction: column; gap: 6px; }
     .ss-menu-item {
       width: 100%;

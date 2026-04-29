@@ -12,7 +12,7 @@ import { CHUNK_FLAG_DIRTY_RENDER, CHUNK_FLAG_DIRTY_SIMULATION } from "../world/c
 import type { ChunkManager } from "../world/chunk_manager";
 import { dismantleBuilding, enqueueJob, setBuildingTile } from "../world/farming/building_actions";
 import { buildingForTile } from "../world/farming/building_registry";
-import { cropForSeed } from "../world/farming/crop_registry";
+import { cropForSeed, cropForTile } from "../world/farming/crop_registry";
 import { penForTile, setPenTile } from "../world/farming/pen_registry";
 import { harvestTile, plantSeed, tillTile, waterTile } from "../world/farming/tile_actions";
 import type { Camera } from "./camera";
@@ -60,6 +60,12 @@ export interface ToolApplyDeps {
   player: Player;
   chunkManager: ChunkManager;
   onEdit?: (chunkX: number, chunkY: number) => void;
+  // Optional user-visible feedback for "tap landed but the action
+  // didn't apply" cases. Without it, the player has no signal — most
+  // visible on touch where there's no hover preview to suggest why
+  // (no seeds, wrong tile type, crop not ripe). The action-key path
+  // omits this so possession doesn't double up its own feedback.
+  toast?: (msg: string) => void;
 }
 
 // Runs the currently-selected tool against the given tile. Returns true
@@ -78,13 +84,18 @@ export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
     }
     case "plant": {
       const seed = pickPlantSeed(deps.inventory, deps.player.level, deps.tool.selectedSeedId);
-      if (!seed) return false;
+      if (!seed) {
+        deps.toast?.("No seeds carried");
+        return false;
+      }
       const def = cropForSeed(seed);
       if (!def) return false;
       const result = plantSeed(record.data, pick.localX, pick.localY, seed);
       if (result.applied) {
         deps.inventory.remove(seed, 1);
         edited = true;
+      } else {
+        deps.toast?.("Needs empty tilled farmland");
       }
       break;
     }
@@ -105,6 +116,13 @@ export function applyToolAt(deps: ToolApplyDeps, pick: PickResult): boolean {
           deps.inventory.add(result.seedItem, result.seedYield);
         }
         edited = true;
+      } else {
+        // Distinguish "tapped a crop that isn't ripe yet" from "tapped
+        // something that isn't a crop at all" — the former is the
+        // common-case mistake on touch.
+        const i = pick.localY * 32 + pick.localX;
+        const tileId = record.data.tileId[i] ?? 0;
+        if (cropForTile(tileId)) deps.toast?.("Crop not ready");
       }
       break;
     }
@@ -198,6 +216,10 @@ export interface TileInteractionDeps {
   // Same gating as onContainerClick; the handler self-checks the tile
   // type so it's safe to fire alongside onContainerClick.
   onBuildingClick?: (worldTileX: number, worldTileY: number) => void;
+  // Optional toast — surfaces "couldn't apply" reasons (no seed, crop
+  // not ripe, etc.) so taps that look like no-ops on touch get a clear
+  // explanation. See ToolApplyDeps.toast.
+  toast?: (msg: string) => void;
 }
 
 export function attachTileInteraction(deps: TileInteractionDeps): () => void {
@@ -275,6 +297,7 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
         player,
         chunkManager,
         ...(deps.onEdit ? { onEdit: deps.onEdit } : {}),
+        ...(deps.toast ? { toast: deps.toast } : {}),
       },
       pick,
     );
