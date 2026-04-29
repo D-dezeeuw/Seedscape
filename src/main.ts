@@ -24,7 +24,8 @@ import { OrderBook } from "./state/orders";
 import { Player } from "./state/player";
 import { entityCenter, PossessionController } from "./state/possession";
 import { isActionable, resolvePossessedAction } from "./state/possession_actions";
-import { SaveManager } from "./state/save_manager";
+import { preferences } from "./state/preferences";
+import { SAVE_VERSION, SaveManager, type Snapshot } from "./state/save_manager";
 import { newUnlocksAtLevel } from "./state/unlocks";
 import { BuildPreviewReticle } from "./ui/build_preview_reticle";
 import { createBuildingWindow } from "./ui/building_window";
@@ -35,10 +36,12 @@ import { FacedTileReticle } from "./ui/faced_tile_reticle";
 import { createGuideWindow } from "./ui/guide_window";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
+import { createMobileMenu } from "./ui/mobile_menu";
 import { createOrdersPanel } from "./ui/orders_panel";
 import { createPersonWindow } from "./ui/person_window";
 import { createPlantSeedSelector } from "./ui/plant_seed_selector";
 import { createPossessionActionBar } from "./ui/possession_action_bar";
+import { createPossessionDpad } from "./ui/possession_dpad";
 import { createSettingsPanel } from "./ui/settings_panel";
 import { createSettlersWindow } from "./ui/settlers_window";
 import { createShopMenu } from "./ui/shop_menu";
@@ -71,7 +74,10 @@ import { harvestTile, plantSeed, tillTile, waterTile } from "./world/farming/til
 import { buildChunkMask, isEntityWalkable } from "./world/walkability";
 
 const TILE_WORLD_SIZE = 1.0;
-const WORLD_SEED = 0xc0ffee;
+// Default seed used for a fresh world when the player hasn't queued a
+// custom one in preferences. Loaded saves carry their own seed in the
+// snapshot and ignore this constant.
+const DEFAULT_WORLD_SEED = 0xc0ffee;
 const CACHE_CAPACITY = 256;
 const STREAM_MARGIN_CHUNKS = 2;
 const SIM_TICK_MS = 1000;
@@ -138,7 +144,30 @@ async function bootstrap(): Promise<void> {
   const atlas = await loadAtlas(gl, `${import.meta.env.BASE_URL}atlas.png`, ATLAS_MANIFEST);
   const renderer = new InstancedTileRenderer(gl, atlas, TILE_WORLD_SIZE);
   const entityRenderer = new InstancedEntityRenderer(gl, TILE_WORLD_SIZE);
-  const generationPool = new GenerationPool(WORLD_SEED);
+
+  // IO + snapshot peek happen before the generation pool spins up: the
+  // pool needs the world seed at construction, and the seed comes from
+  // the saved snapshot (if any) — fallback to a pending seed queued via
+  // settings, then the default constant.
+  const ioClient = new IoClient();
+  const peekedRaw = await ioClient.load<Snapshot>();
+  const existingSave: Snapshot | null =
+    peekedRaw && peekedRaw.version === SAVE_VERSION ? peekedRaw : null;
+  if (peekedRaw && !existingSave) {
+    console.warn(
+      `save version mismatch (got ${peekedRaw.version}, expected ${SAVE_VERSION}); ignoring`,
+    );
+  }
+  let worldSeed: number;
+  if (existingSave) {
+    worldSeed = existingSave.worldSeed;
+  } else {
+    const pending = preferences.get().pendingWorldSeed;
+    worldSeed = pending ?? DEFAULT_WORLD_SEED;
+    if (pending !== null) preferences.set("pendingWorldSeed", null);
+  }
+
+  const generationPool = new GenerationPool(worldSeed);
   await generationPool.ready();
   const pathfinding = new PathfindingClient();
   // Reused scratch for mask builds — one allocation, not one per chunk-load.
@@ -162,7 +191,6 @@ async function bootstrap(): Promise<void> {
     },
   });
   const simulationPool = new SimulationPool();
-  const ioClient = new IoClient();
   // Reused per frame for the entity-chunk pin set passed to
   // chunkManager.update. Pooling keeps the per-frame walk allocation-
   // free in the steady state.
@@ -201,7 +229,7 @@ async function bootstrap(): Promise<void> {
 
   const saveManager = new SaveManager({
     io: ioClient,
-    worldSeed: WORLD_SEED,
+    worldSeed,
     camera,
     player,
     inventory,
@@ -214,7 +242,6 @@ async function bootstrap(): Promise<void> {
     gameTimeSec: () => gameTimeSec,
   });
 
-  const existingSave = await saveManager.load();
   if (existingSave) {
     saveManager.applySnapshot(existingSave);
     gameTimeSec = existingSave.gameTimeSec;
@@ -235,7 +262,7 @@ async function bootstrap(): Promise<void> {
     const spawnResult = await spawnInitialEntities({
       chunkManager,
       entityManager,
-      worldSeed: WORLD_SEED,
+      worldSeed,
     });
     // The starter farm patch mutates chunk(0,0)'s tile arrays — mark it
     // dirty so the GPU upload picks up the new tilled tiles AND the
@@ -435,6 +462,7 @@ async function bootstrap(): Promise<void> {
   });
   const settingsWindow = createSettingsPanel({
     parent: document.body,
+    currentSeed: worldSeed,
     // Reuse the autosave's serialised promise chain so a manual save
     // can't interleave with an in-flight autosave.
     onSaveNow: () => {
@@ -478,6 +506,24 @@ async function bootstrap(): Promise<void> {
     player,
   });
 
+  // Mobile menu (hamburger). The toolbar's window-buttons row is
+  // hidden on (pointer: coarse); these items reach Inventory /
+  // Trader / Shop / Settlers via the same UiWindow handles. Guide
+  // and Settings stay reachable from their dedicated FABs even when
+  // the menu is closed, but they're listed here too for one-stop
+  // discoverability.
+  const mobileMenu = createMobileMenu({
+    parent: document.body,
+    items: [
+      { label: "Inventory", open: () => inventoryWindow.show() },
+      { label: "Trader", open: () => ordersWindow.show() },
+      { label: "Shop", open: () => shopWindow.show() },
+      { label: "Settlers", open: () => settlersWindow.show() },
+      { label: "Guide", open: () => guideWindow.show() },
+      { label: "Settings", open: () => settingsWindow.show() },
+    ],
+  });
+
   // Closing a toolbar window resets the tool to "Pointer" — most
   // notably, closing the Shop drops a build-tool selection so the
   // green build reticle vanishes. Other windows don't currently set
@@ -517,6 +563,17 @@ async function bootstrap(): Promise<void> {
   document.body.appendChild(exitFab);
   const detachExitFabSub = possession.subscribe((snap) => {
     exitFab.style.display = snap.mode === "possess" ? "" : "none";
+  });
+
+  // Mobile-only on-screen D-pad. CSS gates visibility on
+  // `pointer: coarse`; we additionally toggle a class based on
+  // possession so it never appears in god mode even on touch.
+  const dpad = createPossessionDpad(document.body, inputRouter);
+  const detachDpadSub = possession.subscribe((snap) => {
+    dpad.setVisible(snap.mode === "possess");
+    // Hide the hamburger FAB while possessing so the bottom-right
+    // corner is clean for the action bar; reachable again on exit.
+    mobileMenu.setFabVisible(snap.mode !== "possess");
   });
 
   // ? FAB (bottom-left) opens the Game Guide. Hidden during possession
@@ -900,7 +957,7 @@ async function bootstrap(): Promise<void> {
       {
         time: gameTimeSec,
         dt,
-        worldSeed: WORLD_SEED,
+        worldSeed,
         isWalkable: isWalkableTile,
         simTick: tick,
         services: entityServices,
@@ -969,6 +1026,9 @@ async function bootstrap(): Promise<void> {
       detachPossession();
       detachDeathToast();
       detachExitFabSub();
+      detachDpadSub();
+      dpad.destroy();
+      mobileMenu.destroy();
       exitFab.remove();
       detachHelpFabSub();
       helpFab.remove();

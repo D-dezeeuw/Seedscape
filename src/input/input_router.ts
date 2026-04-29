@@ -35,6 +35,16 @@ export class InputRouter {
   // Map of currently-held movement keys → press timestamp. Auto-repeat
   // events are ignored (we only record the first press until release).
   private readonly pressed = new Map<string, number>();
+  // Mobile D-pad shadow vector. Touch UI doesn't fire keyboard
+  // events, so the D-pad pushes a vector here directly. Folded into
+  // vector() so the per-frame consumer doesn't have to branch.
+  private mobileDx: Axis = 0;
+  private mobileDy: Axis = 0;
+
+  setMobileVector(dx: number, dy: number): void {
+    this.mobileDx = (dx > 0 ? 1 : dx < 0 ? -1 : 0) as Axis;
+    this.mobileDy = (dy > 0 ? 1 : dy < 0 ? -1 : 0) as Axis;
+  }
 
   onKeyDown(key: string, timeMs: number): void {
     if (!isMovementKey(key)) return;
@@ -57,7 +67,11 @@ export class InputRouter {
   }
 
   // Returns the current 4-cardinal input vector. If both axes have keys
-  // pressed, the axis whose most-recent press is later wins.
+  // pressed, the axis whose most-recent press is later wins. The
+  // mobile D-pad's vector takes priority when keyboard input is
+  // empty — mixing keyboard + touch in the same frame is degenerate
+  // (only one input source is active in practice) so the precedence
+  // rule keeps the resolved vector deterministic.
   vector(): InputVector {
     const east = this.maxPressTime(KEY_EAST);
     const west = this.maxPressTime(KEY_WEST);
@@ -67,7 +81,18 @@ export class InputRouter {
     const horiz = Math.max(east, west);
     const vert = Math.max(north, south);
 
-    if (horiz === 0 && vert === 0) return ZERO;
+    if (horiz === 0 && vert === 0) {
+      if (this.mobileDx !== 0 || this.mobileDy !== 0) {
+        // World Y is up-positive but the D-pad emits screen-style
+        // (down = +1) — flip here so an "up" tap maps to dy = +1
+        // like the W key. The dpad component already produces
+        // screen-style; this keeps the InputRouter contract.
+        const dy = -this.mobileDy as Axis;
+        if (this.mobileDx !== 0) return { dx: this.mobileDx, dy: 0 };
+        return { dx: 0, dy };
+      }
+      return ZERO;
+    }
     if (horiz > vert) {
       return { dx: east > west ? 1 : -1, dy: 0 };
     }

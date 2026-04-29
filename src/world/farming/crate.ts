@@ -55,6 +55,14 @@ export class CrateStore {
     return this.contents.get(tileKeyOf(x, y))?.get(item) ?? 0;
   }
 
+  // Item ids currently stored at (x,y). Returned in Map insertion order;
+  // callers that need a stable display order should sort.
+  itemsAt(x: number, y: number): ItemId[] {
+    const inner = this.contents.get(tileKeyOf(x, y));
+    if (!inner) return [];
+    return Array.from(inner.keys());
+  }
+
   // Try to deposit `n` of `item` at (x,y). Returns the count actually stored
   // — clamped by remaining capacity. Caller adjusts the source by the
   // returned amount.

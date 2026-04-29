@@ -6,6 +6,7 @@ import type { Camera } from "../input/camera";
 import { pickTile } from "../input/picker";
 import type { EntityManager } from "../state/entities/entity_manager";
 import { Villager } from "../state/entities/villager";
+import { preferences } from "../state/preferences";
 import { tileIndex } from "../world/chunk";
 import type { ChunkManager } from "../world/chunk_manager";
 import { buildingForTile, getQueuedJobs } from "../world/farming/building_registry";
@@ -232,6 +233,9 @@ export function createTileInfo(deps: TileInfoDeps): () => void {
   };
 
   const onMove = (e: PointerEvent): void => {
+    // Mouse hover on desktop. Touch never fires this — tap path
+    // below handles those.
+    if (e.pointerType !== "" && e.pointerType !== "mouse") return;
     lastClientX = e.clientX;
     lastClientY = e.clientY;
     if (!dirty) {
@@ -242,17 +246,42 @@ export function createTileInfo(deps: TileInfoDeps): () => void {
       });
     }
   };
+  // Touch / pen tap: snap the panel to the tapped tile. Pen-style
+  // hover (pointermove with pointerType==='pen') is rare in practice;
+  // a dedicated tap is what mobile players expect.
+  const onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === "" || e.pointerType === "mouse") return;
+    lastClientX = e.clientX;
+    lastClientY = e.clientY;
+    renderBody();
+  };
   const onLeave = (): void => {
     lastClientX = -1;
     showEmpty();
   };
 
   deps.canvas.addEventListener("pointermove", onMove);
+  deps.canvas.addEventListener("pointerdown", onPointerDown);
   deps.canvas.addEventListener("pointerleave", onLeave);
+
+  // Tile-info toggle (Settings): hides the whole panel + stops the
+  // hover/tap render path when disabled. Re-enables instantly when
+  // flipped back on. Subscription fires synchronously with current
+  // value so initial state matches the saved preference.
+  const unsubscribePrefs = preferences.subscribe((prefs) => {
+    if (prefs.tileInfoEnabled) {
+      panel.style.display = "";
+    } else {
+      panel.style.display = "none";
+      lastClientX = -1;
+    }
+  });
 
   return () => {
     deps.canvas.removeEventListener("pointermove", onMove);
+    deps.canvas.removeEventListener("pointerdown", onPointerDown);
     deps.canvas.removeEventListener("pointerleave", onLeave);
+    unsubscribePrefs();
     panel.remove();
   };
 }

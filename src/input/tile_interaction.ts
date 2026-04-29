@@ -21,7 +21,11 @@ import type { ToolState } from "./tool";
 
 const HARVEST_XP_PER_YIELD = 1;
 const PRODUCTION_FEED_XP = 2;
-const CLICK_DRAG_TOLERANCE_PX = 4;
+// Movement budget that still counts as a tap rather than a drag.
+// Mouse stays tight (4px); touch is forgiving (12px) since fingers
+// always wobble. matchMedia gate at run time picks per-event.
+const CLICK_DRAG_TOLERANCE_PX_MOUSE = 4;
+const CLICK_DRAG_TOLERANCE_PX_TOUCH = 12;
 
 // Default seed for the plant tool when the player has multiple seed types.
 // Phase 4 picks the first seed in inventory in priority order. Replaced when
@@ -215,7 +219,11 @@ export function attachTileInteraction(deps: TileInteractionDeps): () => void {
     pointerActive = false;
     const dx = Math.abs(e.clientX - downX);
     const dy = Math.abs(e.clientY - downY);
-    if (dx > CLICK_DRAG_TOLERANCE_PX || dy > CLICK_DRAG_TOLERANCE_PX) return;
+    const tolerance =
+      e.pointerType === "touch" || e.pointerType === "pen"
+        ? CLICK_DRAG_TOLERANCE_PX_TOUCH
+        : CLICK_DRAG_TOLERANCE_PX_MOUSE;
+    if (dx > tolerance || dy > tolerance) return;
 
     const rect = canvas.getBoundingClientRect();
     const localX = e.clientX - rect.left;

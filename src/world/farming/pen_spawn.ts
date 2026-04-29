@@ -10,8 +10,8 @@
 // search trivial (no region detection) and lets a player scale herd
 // size by placing more pen tiles.
 
-import type { EntityManager } from "../../state/entities/entity_manager";
 import { Animal } from "../../state/entities/animal";
+import type { EntityManager } from "../../state/entities/entity_manager";
 import { CHUNK_SIZE, tileIndex } from "../chunk";
 import type { ChunkManager } from "../chunk_manager";
 import { isPenTile, penForTile } from "./pen_registry";

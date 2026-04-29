@@ -367,16 +367,13 @@ function setupStressHusbandry(deps: DebugPanelDeps): {
   // Spawn the requested number of animals, skipping tiles in stride
   // so they start spread across the pen rather than packed in a corner.
   // Roaming logic does the rest at runtime.
-  const spawnAt = (
-    tile: { x: number; y: number },
-    species: "chicken" | "cow",
-  ): void => {
+  const spawnAt = (tile: { x: number; y: number }, species: "chicken" | "cow"): void => {
     const id = deps.entityManager.allocateId();
     const pos = {
       chunkX: Math.floor(tile.x / CHUNK_SIZE),
       chunkY: Math.floor(tile.y / CHUNK_SIZE),
-      localX: ((tile.x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE + 0.5,
-      localY: ((tile.y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE + 0.5,
+      localX: (((tile.x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE) + 0.5,
+      localY: (((tile.y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE) + 0.5,
     };
     const animal =
       species === "chicken"
