@@ -613,24 +613,23 @@ export function injectUiStyles(): void {
        - Browser zoom disabled (viewport meta); the canvas owns
          pinch + drag via pointer events. */
     @media (pointer: coarse) {
-      /* Every toolbar/contextual window fills the viewport. The
-         single-window mutex (window.ts) keeps only one open, so
-         fullscreen is safe — there's nothing to overlap with. */
+      /* Every toolbar/contextual window fills the viewport. Anchor to
+         all four edges via inset:0 so the element stretches to fill
+         the viewport. The previous rule set inset:0 and then reset
+         all four offsets to auto with width/height: 100vw/100vh —
+         which leaves position:fixed with no anchor and falls back
+         to static-flow position. On iOS Safari that resolves below
+         the 100vh canvas (top: 100vh), so the panel rendered off-
+         screen and looked "not open". */
       .ss-window {
-        position: fixed;
         inset: 0;
+        width: auto;
+        height: auto;
         max-width: none;
         min-width: 0;
         max-height: none;
         border-radius: 0;
         transform: none;
-        bottom: auto;
-        left: auto;
-        right: auto;
-        top: auto;
-        width: 100vw;
-        height: 100vh;
-        height: 100dvh; /* dynamic viewport — ignores browser chrome */
         padding-top: env(safe-area-inset-top);
         padding-bottom: env(safe-area-inset-bottom);
       }
