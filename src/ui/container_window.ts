@@ -22,7 +22,7 @@
 import type { InventoryLike } from "../state/inventory_like";
 import { getItemDef, type ItemId } from "../state/items";
 import { type ContainerDef, containerForTile } from "../world/farming/container_registry";
-import type { CrateStore } from "../world/farming/crate";
+import { CRATE_CAPACITY, type CrateStore } from "../world/farming/crate";
 import { makeWindow, type UiWindow } from "./window";
 
 const REFRESH_HZ = 4;
@@ -95,7 +95,7 @@ export function createContainerWindow(deps: ContainerWindowDeps): ContainerWindo
 
     titleEl.textContent = displayNameFor(target.tileId);
     const total = deps.crates.totalAt(target.x, target.y);
-    metaEl.textContent = `(${target.x}, ${target.y}) · ${total} items`;
+    metaEl.textContent = `(${target.x}, ${target.y}) · ${total}/${CRATE_CAPACITY} items`;
 
     contentsEl.innerHTML = "";
     let any = false;
@@ -189,36 +189,8 @@ function displayNameFor(tileId: number): string {
   return "Container";
 }
 
-// CrateStore doesn't expose contents iteration per-tile; iterate via
-// crates() and filter to the tile we care about. Cheap for a window
-// — at most a few crates worth of entries to walk.
 function collectContainerItems(target: OpenTarget, crates: CrateStore): ItemId[] {
-  const ids: ItemId[] = [];
-  for (const c of crates.crates()) {
-    if (c.x !== target.x || c.y !== target.y) continue;
-    // We have the tile but no per-item iter — probe known item ids by
-    // walking the shop catalog. The CrateStore API is awkward here;
-    // future work could add `itemsAt(x, y)` to clean this up.
-    break;
-  }
-  // Fallback: walk inventory item ids + any items already known to be
-  // depositable for this container kind. For the current registry
-  // (crate accepts anything; dispenser accepts seeds 600..699) this
-  // covers everything we'll ever see in a container.
-  const probe: ItemId[] = [
-    600,
-    608,
-    616, // seeds
-    700,
-    708,
-    716, // raw produce
-    800,
-    810, // processed goods
-  ] as ItemId[];
-  for (const id of probe) {
-    if (crates.countAt(target.x, target.y, id) > 0) ids.push(id);
-  }
-  return ids;
+  return crates.itemsAt(target.x, target.y);
 }
 
 function buildRow(

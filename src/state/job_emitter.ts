@@ -30,10 +30,10 @@ import {
   isPenTile,
   penForTile,
 } from "../world/farming/pen_registry";
-import { HUNGER_MAX } from "./entities/living_entity";
 import { getWaterLevel } from "../world/farming/tile_actions";
 import { ProducerAnimal } from "./entities/animal";
 import type { EntityManager } from "./entities/entity_manager";
+import { HUNGER_MAX } from "./entities/living_entity";
 import { ITEM_IDS, type ItemId } from "./items";
 import {
   JOB_KIND_COLLECT_PRODUCE,

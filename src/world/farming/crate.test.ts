@@ -64,6 +64,16 @@ describe("CrateStore", () => {
     expect(store.totalAt(1, 1)).toBe(0);
   });
 
+  test("itemsAt returns deposited keys; empty for unknown tile", () => {
+    const store = new CrateStore();
+    expect(store.itemsAt(0, 0)).toEqual([]);
+    store.deposit(4, 4, ITEM_IDS.WHEAT, 3);
+    store.deposit(4, 4, ITEM_IDS.EGG, 2);
+    expect(store.itemsAt(4, 4).sort()).toEqual([ITEM_IDS.WHEAT, ITEM_IDS.EGG].sort());
+    store.withdraw(4, 4, ITEM_IDS.WHEAT, 3);
+    expect(store.itemsAt(4, 4)).toEqual([ITEM_IDS.EGG]);
+  });
+
   test("multiple item types share capacity", () => {
     const store = new CrateStore();
     store.deposit(0, 0, ITEM_IDS.WHEAT, 100);

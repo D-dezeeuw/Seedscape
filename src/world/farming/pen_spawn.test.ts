@@ -1,12 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { Chicken, Cow } from "../../state/entities/animal";
 import { EntityManager } from "../../state/entities/entity_manager";
-import {
-  allocChunkData,
-  CHUNK_FLAG_DIRTY_RENDER,
-  type ChunkRecord,
-  tileIndex,
-} from "../chunk";
+import { allocChunkData, CHUNK_FLAG_DIRTY_RENDER, type ChunkRecord, tileIndex } from "../chunk";
 import { chunkKey } from "../coords";
 import { TILE_CHICKEN_PEN, TILE_COW_PEN } from "./pen_registry";
 import { findEmptyPen } from "./pen_spawn";
@@ -51,7 +46,11 @@ describe("findEmptyPen", () => {
     const cm = fakeChunkManager([[k, r]]);
     const em = new EntityManager();
     em.add(
-      new Chicken(em.allocateId(), { chunkX: 0, chunkY: 0, localX: 5.5, localY: 5.5 }, { x: 5, y: 5 }),
+      new Chicken(
+        em.allocateId(),
+        { chunkX: 0, chunkY: 0, localX: 5.5, localY: 5.5 },
+        { x: 5, y: 5 },
+      ),
     );
     const hit = findEmptyPen(cm, em, "chicken", 0, 0);
     expect(hit).toEqual({ worldTileX: 7, worldTileY: 5 });

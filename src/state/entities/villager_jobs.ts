@@ -24,16 +24,16 @@ import type { BuildingBufferStore } from "../../world/farming/building_buffer";
 import { buildingInputCap, buildingOutputCap } from "../../world/farming/building_buffer_tick";
 import { buildingForTile } from "../../world/farming/building_registry";
 import { containerForTile, isSeedItem } from "../../world/farming/container_registry";
-import { isPenTile } from "../../world/farming/pen_registry";
 import { CRATE_TILE_ID } from "../../world/farming/crate";
 import {
   CROP_STAGE_HARVESTABLE,
   CROP_STATE_WILTED,
   cropForTile,
 } from "../../world/farming/crop_registry";
+import { isPenTile } from "../../world/farming/pen_registry";
 import { findNearestWaterSource } from "../../world/farming/water_finder";
 import { isEntityWalkable, isWaterSource } from "../../world/walkability";
-import { getFoodValue, isFoodItem, isItemDefaultSticky, ITEM_IDS, type ItemId } from "../items";
+import { getFoodValue, ITEM_IDS, type ItemId, isFoodItem, isItemDefaultSticky } from "../items";
 import {
   JOB_KIND_COLLECT_PRODUCE,
   JOB_KIND_FEED_ANIMAL,
@@ -52,7 +52,12 @@ const TILE_FARMLAND_TILLED = 13;
 
 import { ProducerAnimal } from "./animal";
 import type { EntityServices, EntityTickContext } from "./entity";
-import { HUNGER_HUNGRY_THRESHOLD, HUNGER_MAX, MEMORY_EVENT_TYPES, recordMemory } from "./living_entity";
+import {
+  HUNGER_HUNGRY_THRESHOLD,
+  HUNGER_MAX,
+  MEMORY_EVENT_TYPES,
+  recordMemory,
+} from "./living_entity";
 import { MAX_WATER_RESERVE, type Villager } from "./villager";
 
 // Tunables. Adjusted to feel responsive without a setter.
@@ -319,11 +324,7 @@ export class VillagerJobController {
     // item (foodValue > 0). The eat task is a single-phase deposit-
     // shaped task — walk to standing tile, consume one unit, pop.
     // Skipped when no crates / no food / no walkable approach.
-    if (
-      v.needs.hunger < HUNGER_HUNGRY_THRESHOLD &&
-      services.crates &&
-      services.tileWorld
-    ) {
+    if (v.needs.hunger < HUNGER_HUNGRY_THRESHOLD && services.crates && services.tileWorld) {
       const target = pickEatTarget(services, fromX, fromY);
       if (target) {
         this.pushTask({
@@ -1093,12 +1094,7 @@ export class VillagerJobController {
         // One produce per haul keeps the buffer rolling — caps in
         // building_buffer prevent unbounded accumulation if hauls
         // somehow stop.
-        const taken = services.buildingBuffers.consumeOutput(
-          penTile.x,
-          penTile.y,
-          produceItem,
-          99,
-        );
+        const taken = services.buildingBuffers.consumeOutput(penTile.x, penTile.y, produceItem, 99);
         if (taken > 0) {
           v.pickup(produceItem, taken);
           recordMemory(v, {
@@ -1661,12 +1657,7 @@ function pickFoodInCrate(
 // Items currently flagged foodValue > 0 in items.ts. Hardcoded here
 // so the per-crate scan doesn't have to walk every ItemDef. Update
 // this list when new food items ship.
-const FOOD_PROBE: ItemId[] = [
-  ITEM_IDS.CARROT,
-  ITEM_IDS.CORN,
-  ITEM_IDS.BREAD,
-  ITEM_IDS.EGG,
-];
+const FOOD_PROBE: ItemId[] = [ITEM_IDS.CARROT, ITEM_IDS.CORN, ITEM_IDS.BREAD, ITEM_IDS.EGG];
 
 function hasUnclaimedPlantJob(board: import("../jobs").JobBoard): boolean {
   for (const j of board.all()) {

@@ -386,6 +386,18 @@ export function injectUiStyles(): void {
       opacity: 0.4;
       cursor: not-allowed;
     }
+    .ss-input {
+      background: rgba(0, 0, 0, 0.5);
+      color: #e8eaed;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 0.5rem;
+      padding: 6px 8px;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      width: 12ch;
+      outline: none;
+    }
+    .ss-input:focus { border-color: #5b9fc0; }
+    .ss-input::placeholder { color: #708090; }
     .ss-btn-sell, .ss-btn-buy {
       padding: 4px 8px;
       font-size: 11px;
@@ -582,6 +594,205 @@ export function injectUiStyles(): void {
       padding: 4px 8px;
       font-size: 11px;
     }
+
+    /* ---------------- Mobile layout (pointer: coarse) ----------------
+       Phones / tablets / touch laptops. Gated on input class, not
+       viewport width — a 13" touch Surface should get the mobile UI;
+       a 360px-wide desktop window should not. Common pattern for
+       game UIs.
+
+       Highlights:
+       - Toolbar windows go fullscreen (one panel at a time, easy to
+         dismiss via the existing × in the panel header).
+       - Tap targets bumped to ≥44px square per Apple HIG / Material.
+       - Safe-area insets respected so iPhone home indicator + Android
+         nav bar don't hide controls.
+       - Browser zoom disabled (viewport meta); the canvas owns
+         pinch + drag via pointer events. */
+    @media (pointer: coarse) {
+      /* Every toolbar/contextual window fills the viewport. The
+         single-window mutex (window.ts) keeps only one open, so
+         fullscreen is safe — there's nothing to overlap with. */
+      .ss-window {
+        position: fixed;
+        inset: 0;
+        max-width: none;
+        min-width: 0;
+        max-height: none;
+        border-radius: 0;
+        transform: none;
+        bottom: auto;
+        left: auto;
+        right: auto;
+        top: auto;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh; /* dynamic viewport — ignores browser chrome */
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      /* Larger tap targets — buttons are core-loop interactions. */
+      .ss-btn {
+        min-height: 40px;
+        padding: 10px 16px;
+        font-size: 13px;
+      }
+      .ss-btn-tight {
+        min-height: 32px;
+        padding: 4px 10px;
+        font-size: 12px;
+      }
+
+      /* Toolbar — collapse the windows row, scale the actions row
+         for thumb taps. The hamburger menu (mobile_menu.ts) replaces
+         the toolbar's window-button row entirely. */
+      .ss-toolbar-stack {
+        bottom: calc(8px + env(safe-area-inset-bottom));
+      }
+      .ss-toolbar-windows { display: none; }
+      .ss-toolbar-actions {
+        gap: 6px;
+        padding: 8px;
+        max-width: calc(100vw - 16px);
+        overflow-x: auto;
+        scrollbar-width: none; /* Firefox */
+      }
+      .ss-toolbar-actions::-webkit-scrollbar { display: none; }
+      .ss-toolbar-actions .ss-btn {
+        flex: 0 0 auto;
+        min-width: 56px;
+      }
+
+      /* Plant seed selector — tighten + raise above the bigger
+         toolbar so it doesn't overlap. */
+      .ss-plant-selector {
+        bottom: calc(72px + env(safe-area-inset-bottom));
+      }
+
+      /* Top-left stack stays at the corner but respects the notch. */
+      .ss-stack-topleft {
+        top: calc(8px + env(safe-area-inset-top));
+        left: calc(8px + env(safe-area-inset-left));
+        max-width: calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right));
+      }
+      .ss-hud, .ss-info { min-width: 0; max-width: 100%; }
+
+      /* Performance HUD: keep visible but smaller. */
+      .ss-performance {
+        top: calc(8px + env(safe-area-inset-top));
+        font-size: 11px;
+        padding: 4px 8px;
+      }
+
+      /* FAB stack: ?, ⚙, exit-possess. Larger + safe-area aware. */
+      .ss-help-fab,
+      .ss-exit-possess-fab,
+      .ss-debug-fab {
+        bottom: calc(8px + env(safe-area-inset-bottom));
+      }
+      .ss-help-fab,
+      .ss-debug-fab {
+        right: calc(8px + env(safe-area-inset-right));
+      }
+      .ss-exit-possess-fab {
+        left: calc(8px + env(safe-area-inset-left));
+      }
+      .ss-help-fab {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+      }
+
+      /* Possession action bar: bigger button so it doubles as the
+         E-key replacement on touch. */
+      .ss-possession-action {
+        padding: 14px 24px;
+        font-size: 14px;
+      }
+
+      /* Dev-only debug FAB stays tucked above the help FAB so it
+         doesn't claim its slot. */
+      .ss-debug-fab {
+        bottom: calc(60px + env(safe-area-inset-bottom));
+      }
+    }
+
+    /* ---------------- Mobile menu (hamburger sheet) ----------------
+       Replaces the desktop toolbar window-buttons row on mobile.
+       Mounted by mobile_menu.ts; styling lives here so the rest of
+       the panel chrome (.ss-panel / .ss-panel-header etc.) applies
+       cleanly. */
+    .ss-menu-fab {
+      position: fixed;
+      bottom: 8px;
+      right: 56px; /* sits left of the help FAB */
+      z-index: 10;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      font-size: 20px;
+      line-height: 1;
+      display: none; /* hidden on desktop; shown via mobile media query below */
+      align-items: center;
+      justify-content: center;
+    }
+    @media (pointer: coarse) {
+      .ss-menu-fab {
+        display: inline-flex;
+        bottom: calc(8px + env(safe-area-inset-bottom));
+        right: calc(60px + env(safe-area-inset-right));
+      }
+    }
+    .ss-menu-list { display: flex; flex-direction: column; gap: 6px; }
+    .ss-menu-item {
+      width: 100%;
+      text-align: left;
+      padding: 14px 16px;
+      font-size: 15px;
+      min-height: 48px;
+    }
+
+    /* ---------------- Possession D-pad (mobile) ----------------
+       Visible only when (a) on a touch device and (b) the player is
+       possessing a settler. main.ts toggles a class on the dpad
+       container based on the possession subscription. */
+    .ss-dpad {
+      position: fixed;
+      bottom: calc(72px + env(safe-area-inset-bottom));
+      left: calc(12px + env(safe-area-inset-left));
+      display: none;
+      grid-template-columns: 48px 48px 48px;
+      grid-template-rows: 48px 48px 48px;
+      gap: 4px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    @media (pointer: coarse) {
+      .ss-dpad.ss-dpad-visible { display: grid; }
+    }
+    .ss-dpad-btn {
+      pointer-events: auto;
+      background: rgba(0, 0, 0, 0.6);
+      color: #e8eaed;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 0.5rem;
+      font-size: 20px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ss-dpad-btn:active {
+      background: rgba(91, 159, 192, 0.55);
+    }
+    .ss-dpad-up    { grid-column: 2; grid-row: 1; }
+    .ss-dpad-left  { grid-column: 1; grid-row: 2; }
+    .ss-dpad-right { grid-column: 3; grid-row: 2; }
+    .ss-dpad-down  { grid-column: 2; grid-row: 3; }
   `;
   document.head.appendChild(style);
 }

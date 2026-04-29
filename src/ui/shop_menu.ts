@@ -119,11 +119,7 @@ function buildBuildingRow(
   };
 }
 
-function buildAnimalRow(
-  parent: HTMLElement,
-  offer: AnimalOffer,
-  deps: ShopDeps,
-): RowUpdate {
+function buildAnimalRow(parent: HTMLElement, offer: AnimalOffer, deps: ShopDeps): RowUpdate {
   const row = document.createElement("div");
   row.className = "ss-shop-row";
   row.innerHTML = `<span>${offer.displayName} <span class="ss-dim">${offer.price}c</span></span>`;

@@ -19,8 +19,8 @@ import {
   HUNGER_COST_PER_PRODUCE,
   HUNGER_RESTORE_PER_FEED,
   isPenTile,
-  penForTile,
   PRODUCE_HUNGER_THRESHOLD,
+  penForTile,
 } from "../../world/farming/pen_registry";
 import { ITEM_IDS, type ItemId } from "../items";
 import type { EntityPosition, EntityTickContext, EntityType, Facing } from "./entity";

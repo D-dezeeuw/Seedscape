@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { ITEM_IDS, getFoodValue, isFoodItem } from "../items";
-import { EntityManager } from "./entity_manager";
+import { getFoodValue, ITEM_IDS, isFoodItem } from "../items";
 import type { EntityTickContext } from "./entity";
+import { EntityManager } from "./entity_manager";
 import { HUNGER_HUNGRY_THRESHOLD, HUNGER_MAX } from "./living_entity";
 import { Villager } from "./villager";
 

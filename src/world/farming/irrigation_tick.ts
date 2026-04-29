@@ -12,7 +12,12 @@
 // ticks, a Sprinkler at SPRINKLER_PERIOD. On a "wet" tick the radius
 // is clamped to WATER_MAX; on dry ticks the irrigation is silent.
 
-import { CHUNK_SIZE, CHUNK_FLAG_DIRTY_RENDER, CHUNK_FLAG_DIRTY_SIMULATION, tileIndex } from "../chunk";
+import {
+  CHUNK_FLAG_DIRTY_RENDER,
+  CHUNK_FLAG_DIRTY_SIMULATION,
+  CHUNK_SIZE,
+  tileIndex,
+} from "../chunk";
 import type { ChunkManager } from "../chunk_manager";
 import { cropForTile } from "./crop_registry";
 import { getWaterLevel, setWaterLevel } from "./tile_actions";

@@ -24,11 +24,7 @@ interface Deps {
   player: Player;
 }
 
-const SEED_OPTIONS: ItemId[] = [
-  ITEM_IDS.WHEAT_SEED,
-  ITEM_IDS.CARROT_SEED,
-  ITEM_IDS.CORN_SEED,
-];
+const SEED_OPTIONS: ItemId[] = [ITEM_IDS.WHEAT_SEED, ITEM_IDS.CARROT_SEED, ITEM_IDS.CORN_SEED];
 
 export function createPlantSeedSelector(deps: Deps): () => void {
   const row = document.createElement("div");
