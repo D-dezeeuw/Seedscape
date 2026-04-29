@@ -36,7 +36,7 @@ import { FacedTileReticle } from "./ui/faced_tile_reticle";
 import { createGuideWindow } from "./ui/guide_window";
 import { createHud } from "./ui/hud";
 import { createInventoryPanel } from "./ui/inventory_panel";
-import { createMobileMenu } from "./ui/mobile_menu";
+import { createMobileBottomNav } from "./ui/mobile_bottom_nav";
 import { createOrdersPanel } from "./ui/orders_panel";
 import { createPersonWindow } from "./ui/person_window";
 import { createPlantSeedSelector } from "./ui/plant_seed_selector";
@@ -395,6 +395,7 @@ async function bootstrap(): Promise<void> {
     },
     onBuildingClick: (x, y) => buildingWindow.showFor(x, y),
     isPossessing: () => possession.isPossessing(),
+    toast: (msg) => toaster.show(msg),
   });
 
   // Top-left stack — HUD on top, tile-info below it. Shared parent
@@ -506,20 +507,21 @@ async function bootstrap(): Promise<void> {
     player,
   });
 
-  // Mobile menu (hamburger). The toolbar's window-buttons row is
-  // hidden on (pointer: coarse); these items reach Inventory /
-  // Trader / Shop / Settlers via the same UiWindow handles. Guide
-  // and Settings stay reachable from their dedicated FABs even when
-  // the menu is closed, but they're listed here too for one-stop
-  // discoverability.
-  const mobileMenu = createMobileMenu({
+  // Mobile-only bottom nav. Replaces the desktop toolbar + the
+  // floating ?/☰ FABs on (pointer: coarse): one full-width bar with
+  // Tools / Menu / Guide tabs. Guide is its own button (single
+  // destination) so it stays out of the menu sheet. Hidden during
+  // possession via setVisible — the contextual action bar + D-pad
+  // take over the bottom of the screen there.
+  const bottomNav = createMobileBottomNav({
     parent: document.body,
-    items: [
+    tool,
+    guideWindow,
+    menuItems: [
       { label: "Inventory", open: () => inventoryWindow.show() },
       { label: "Trader", open: () => ordersWindow.show() },
       { label: "Shop", open: () => shopWindow.show() },
       { label: "Settlers", open: () => settlersWindow.show() },
-      { label: "Guide", open: () => guideWindow.show() },
       { label: "Settings", open: () => settingsWindow.show() },
     ],
   });
@@ -571,9 +573,10 @@ async function bootstrap(): Promise<void> {
   const dpad = createPossessionDpad(document.body, inputRouter);
   const detachDpadSub = possession.subscribe((snap) => {
     dpad.setVisible(snap.mode === "possess");
-    // Hide the hamburger FAB while possessing so the bottom-right
-    // corner is clean for the action bar; reachable again on exit.
-    mobileMenu.setFabVisible(snap.mode !== "possess");
+    // Bottom nav owns Tools / Menu / Guide in god mode. While
+    // possessing, the contextual action bar + D-pad need the full
+    // bottom region — hide the bar so it doesn't compete.
+    bottomNav.setVisible(snap.mode !== "possess");
   });
 
   // ? FAB (bottom-left) opens the Game Guide. Hidden during possession
@@ -1028,7 +1031,7 @@ async function bootstrap(): Promise<void> {
       detachExitFabSub();
       detachDpadSub();
       dpad.destroy();
-      mobileMenu.destroy();
+      bottomNav.destroy();
       exitFab.remove();
       detachHelpFabSub();
       helpFab.remove();
