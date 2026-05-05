@@ -526,16 +526,20 @@ async function bootstrap(): Promise<void> {
     ],
   });
 
-  // Closing a toolbar window resets the tool to "Pointer" — most
-  // notably, closing the Shop drops a build-tool selection so the
-  // green build reticle vanishes. Other windows don't currently set
-  // a tool, but the rule is uniform so future ones don't need to
-  // remember to wire it.
-  const toolbarWindowCloseSubs = toolbarWindows.map((entry) =>
-    entry.window.onChange((open) => {
-      if (!open && tool.current !== "none") tool.set("none");
-    }),
-  );
+  // Closing the Shop drops the build-tool selection so the green
+  // build reticle vanishes. Scoped to Shop only — other toolbar
+  // windows (Inventory / Trader / Settlers / Settings) have no
+  // bearing on the active tool, and resetting from them silently
+  // disarmed Plant / Till / etc. when the player peeked at their
+  // inventory mid-flow. On touch that read as "planting is broken"
+  // because there's no hover preview to hint the tool was cleared.
+  const toolbarWindowCloseSubs = toolbarWindows
+    .filter((entry) => entry.id === "shop")
+    .map((entry) =>
+      entry.window.onChange((open) => {
+        if (!open && tool.current !== "none") tool.set("none");
+      }),
+    );
 
   // ESC priority — registered AFTER all UI keydown listeners so it runs
   // last in the DOM dispatch order. Window-closing handlers (toolbar,
